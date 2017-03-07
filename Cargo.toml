@@ -7,5 +7,6 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 lto = true
 
 [dependencies]
+regex = "0.2"
 tempfile = "2.1.5"
 

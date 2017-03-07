@@ -1,17 +1,26 @@
+extern crate regex;
 extern crate tempfile;
 
 use std::env;
 use std::fs;
 use std::io;
 use std::path;
-use std::thread;
 use std::time;
 use std::vec;
 use std::process::Command;
 
 // magic functionality-adding imports:
+use std::error::Error;
 use std::io::BufRead;
 use std::io::Write;
+
+// cargo-culting macros woooo
+macro_rules! println_stderr(
+    ($($arg:tt)*) => { {
+        let r = writeln!(&mut ::std::io::stderr(), $($arg)*);
+        r.expect("failed printing to stderr");
+    } }
+);
 
 struct Row {
     path: String,
@@ -47,11 +56,17 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec
 
     let mut scored = vec::Vec::with_capacity(table.len());
 
+    let re = try!(regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description())));
+
     let now = unix_time();
     for row in table {
+        if !re.is_match(row.path.as_str()) {
+            continue;
+        }
+
         let score: f32 = match mode {
             Scorer::Rank => row.rank,
-            Scorer::Recent => (now - row.time) as f32,
+            Scorer::Recent => -((now - row.time) as f32),
             Scorer::Frecent => frecent(row.rank, now - row.time),
         };
 
@@ -64,7 +79,7 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec
 }
 
 fn usage(whoami: &str) {
-    println!("usage: {} --add[-blocking] path", whoami);
+    println_stderr!("usage: {} --add[-blocking] path", whoami);
 }
 
 #[derive(Debug)]
@@ -184,15 +199,8 @@ fn coded_main() -> u8 {
         },
     };
 
-    if arg_count <= 1 {
-        for row in search(&data_file, "", Scorer::Frecent).unwrap() {
-            println!("{:>10} {}", row.score, row.path);
-        }
-        return 0;
-    }
-
     let whoami = args.next().unwrap();
-    let command = args.next().unwrap();
+    let command = args.next().unwrap_or(String::new());
     if "--add" == command {
         if 3 != arg_count{
             usage(&whoami);
@@ -217,9 +225,78 @@ fn coded_main() -> u8 {
         return 0;
     }
 
-    thread::sleep(time::Duration::from_millis(200));
-    println!("Hello, world!");
-    return 1;
+    let mut mode = Scorer::Frecent;
+    let mut subdirs = false;
+    let mut list = false;
+    let mut expr: String = String::new();
+
+    let mut option = command;
+    loop {
+        if option.starts_with("-") {
+
+            if option.len() < 2 {
+                println_stderr!("invalid option: [no option]");
+                return 3;
+            }
+
+            for c in option.chars().skip(1) {
+                if 'c' == c {
+                    subdirs = true;
+                } else if 'l' == c {
+                    list = true;
+                } else if 'h' == c {
+                    usage(&whoami);
+                    return 2;
+                } else if 'r' == c {
+                    mode = Scorer::Rank;
+                } else if 't' == c {
+                    mode = Scorer::Recent;
+                } else {
+                    println_stderr!("unrecognised option: {}", option);
+                    usage(&whoami);
+                    return 3;
+                }
+            }
+        } else {
+            if !expr.is_empty() {
+                expr.push_str(".*");
+            }
+            if !option.is_empty() {
+                expr.push_str(option.as_str());
+            }
+        }
+
+        let next = args.next();
+        if next.is_none() {
+            break;
+        }
+        option = next.unwrap();
+    }
+
+    if expr.is_empty() {
+        list = true;
+    }
+
+    if subdirs {
+        expr.insert_str(0, format!("^{}/.*", env::current_dir().unwrap().to_str().unwrap()).as_str());
+    }
+
+    println!("expr: {}", expr);
+
+    let result = search(&data_file, expr.as_str(), mode).unwrap();
+    if result.is_empty() {
+        return 7;
+    }
+
+    if list {
+        for row in result {
+            println!("{:>10} {}", row.score, row.path);
+        }
+    } else {
+        println!("{}", result[result.len() - 1].path);
+    }
+
+    return 0;
 }
 
 fn main() {
