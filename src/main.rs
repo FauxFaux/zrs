@@ -19,18 +19,48 @@ struct Row {
     time: u64,
 }
 
+struct ScoredRow {
+    path: String,
+    score: f32,
+}
+
 fn unix_time() -> u64 {
     return time::SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap().as_secs();
 }
 
-fn dump(data_file: &path::PathBuf) -> io::Result<()> {
-    let mut table = try!(parse(data_file));
-    table.sort_by(|a, b| a.rank.partial_cmp(&b.rank).unwrap());
+fn frecent(rank: f32, dx: u64) -> f32 {
+    // relate frequency and time
+    if dx < 3600 {
+        return rank * 4.0;
+    }
+    if dx < 86400 {
+        return rank * 2.0;
+    }
+    if dx < 604800 {
+        return rank / 2.0;
+    }
+    return rank / 4.0;
+}
+
+fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec::Vec<ScoredRow>> {
+    let table = try!(parse(data_file));
+
+    let mut scored = vec::Vec::with_capacity(table.len());
+
+    let now = unix_time();
     for row in table {
-        println!("{:>8} {}", row.rank, row.path);
+        let score: f32 = match mode {
+            Scorer::Rank => row.rank,
+            Scorer::Recent => (now - row.time) as f32,
+            Scorer::Frecent => frecent(row.rank, now - row.time),
+        };
+
+        scored.push(ScoredRow { path: row.path, score });
     }
 
-    return Ok(());
+    scored.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
+
+    return Ok(scored);
 }
 
 fn usage(whoami: &str) {
@@ -132,6 +162,12 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
     return Ok(());
 }
 
+enum Scorer {
+    Rank,
+    Recent,
+    Frecent,
+}
+
 fn coded_main() -> u8 {
     let mut args = env::args();
     let arg_count = args.len();
@@ -144,9 +180,10 @@ fn coded_main() -> u8 {
         },
     };
 
-
     if arg_count <= 1 {
-        dump(&data_file).unwrap();
+        for row in search(&data_file, "", Scorer::Frecent).unwrap() {
+            println!("{:>10} {}", row.score, row.path);
+        }
         return 0;
     }
 
