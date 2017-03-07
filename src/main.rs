@@ -23,7 +23,14 @@ fn unix_time() -> u64 {
     return time::SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap().as_secs();
 }
 
-fn dump() {
+fn dump(data_file: &path::PathBuf) -> io::Result<()> {
+    let mut table = try!(parse(data_file));
+    table.sort_by(|a, b| a.rank.partial_cmp(&b.rank).unwrap());
+    for row in table {
+        println!("{:>8} {}", row.rank, row.path);
+    }
+
+    return Ok(());
 }
 
 fn usage(whoami: &str) {
@@ -47,51 +54,66 @@ fn to_row(line: &str) -> Result<Row, ParseError> {
     return Ok(Row { path, rank, time });
 }
 
-fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
+fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
     let mut table: vec::Vec<Row> = vec::Vec::with_capacity(400);
-    {
-        let fd = try!(fs::File::open(data_file));
-        let reader = io::BufReader::new(&fd);
-        let mut count: f32 = 0.0;
-        let mut updated: bool = false;
+    let fd = try!(fs::File::open(data_file));
+    let reader = io::BufReader::new(&fd);
 
-        for line in reader.lines() {
-            let the_line = line.unwrap();
-            let parsed = to_row(&the_line);
-            if parsed.is_err() {
-                continue;
-            }
-            let mut row = parsed.unwrap();
+    for line in reader.lines() {
+        let the_line = line.unwrap();
+        let parsed = to_row(&the_line);
+        if parsed.is_err() {
+            continue;
+        }
+        let row = parsed.unwrap();
 
-            // if something has stopped being a directory, drop it
-            if !path::Path::new(&row.path).is_dir() {
-                continue
-            }
-
-            // if we've found the thing we were going to add, update it instead
-            if !updated && row.path == what {
-                row.rank += 1.0;
-                row.time = unix_time();
-                updated = true;
-            }
-
-            count += row.rank;
-
-            table.push(row);
+        // if something has stopped being a directory, drop it
+        if !path::Path::new(&row.path).is_dir() {
+            continue
         }
 
-        // if we didn't find the thing to add, add it now
-        if !updated {
-            table.push(Row { path: String::from(what), rank: 1.0, time: unix_time() });
-        }
+        table.push(row);
+    }
 
-        // aging
-        if count > 9000.0 {
-            for line in &mut table {
-                line.rank *= 0.99;
-            }
+    return Ok(table);
+}
+
+fn total_rank(table: &vec::Vec<Row>) -> f32 {
+    let mut count: f32 = 0.0;
+    for line in table {
+        count += line.rank;
+    }
+
+    return count;
+}
+
+fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
+
+    let mut table = try!(parse(data_file));
+
+    let mut found = false;
+    for row in &mut table {
+        if row.path != what {
+            continue;
+        }
+        row.rank += 1.0;
+        row.time = unix_time();
+        found = true;
+        break;
+    }
+
+    // if we didn't find the thing to add, add it now
+    if !found {
+        table.push(Row { path: String::from(what), rank: 1.0, time: unix_time() });
+    }
+
+    // aging
+    if total_rank(&table) > 9000.0 {
+        for line in &mut table {
+            line.rank *= 0.99;
         }
     }
+
 
     let tmp = tempfile::NamedTempFile::new_in(data_file.parent().unwrap())
         .expect("couldn't make a temporary file near data file");
@@ -113,8 +135,18 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
 fn coded_main() -> u8 {
     let mut args = env::args();
     let arg_count = args.len();
+
+    let data_file = match env::var("_Z_DATA") {
+        Ok(x) => path::PathBuf::from(&x),
+        Err(_) => {
+            let home = env::home_dir().expect("home directory must be locatable");
+            home.join(".z")
+        },
+    };
+
+
     if arg_count <= 1 {
-        dump();
+        dump(&data_file).unwrap();
         return 0;
     }
 
@@ -132,14 +164,6 @@ fn coded_main() -> u8 {
             .expect("helper failed to start");
         return 0;
     }
-
-    let data_file = match env::var("_Z_DATA") {
-        Ok(x) => path::PathBuf::from(&x),
-        Err(_) => {
-            let home = env::home_dir().expect("home directory must be locatable");
-            home.join(".z")
-        },
-    };
 
     if "--add-blocking" == command {
         if 3 != arg_count {
