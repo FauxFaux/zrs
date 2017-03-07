@@ -38,11 +38,10 @@ fn to_row(line: &str) -> Result<Row, ParseError> {
     let path: String = try!(parts.next().ok_or(ParseError)).to_string();
     let rank_part: &str = try!(parts.next().ok_or(ParseError));
 
-    // TODO: propogate these errors
-    let rank: f32 = rank_part.parse().unwrap();
+    let rank: f32 = try!(rank_part.parse().map_err(|_| ParseError));
 
     let time_part: &str = try!(parts.next().ok_or(ParseError));
-    let time: u64 = time_part.parse().unwrap();
+    let time: u64 = try!(time_part.parse().map_err(|_| ParseError));
 
     return Ok(Row { path, rank, time });
 }
