@@ -153,6 +153,10 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
 
         let mut writer = io::BufWriter::new(&of);
         for line in table {
+            if line.rank < 0.98 {
+                continue
+            }
+
             try!(write!(writer, "{}|{}|{}\n", line.path, line.rank, line.time));
         }
     }
