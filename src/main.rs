@@ -35,9 +35,10 @@ struct ParseError;
 
 fn to_row(line: &str) -> Result<Row, ParseError> {
     let mut parts = line.split('|');
-    let path: String = try!(parts.next().ok_or(ParseError)).to_string();
-    let rank_part: &str = try!(parts.next().ok_or(ParseError));
 
+    let path: String = try!(parts.next().ok_or(ParseError)).to_string();
+
+    let rank_part: &str = try!(parts.next().ok_or(ParseError));
     let rank: f32 = try!(rank_part.parse().map_err(|_| ParseError));
 
     let time_part: &str = try!(parts.next().ok_or(ParseError));
