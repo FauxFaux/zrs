@@ -10,7 +10,6 @@ use std::fs;
 use std::io;
 use std::path;
 use std::time;
-use std::vec;
 
 use std::io::BufRead;
 use std::io::Write;
@@ -50,10 +49,10 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     return rank / 4.0;
 }
 
-fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> Result<vec::Vec<ScoredRow>> {
+fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
     let table = parse(data_file)?;
 
-    let mut scored = vec::Vec::with_capacity(table.len());
+    let mut scored = Vec::with_capacity(table.len());
 
     let re = regex::Regex::new(expr)?;
 
@@ -93,8 +92,8 @@ fn to_row(line: &str) -> Result<Row> {
     });
 }
 
-fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
-    let mut table: vec::Vec<Row> = vec::Vec::with_capacity(400);
+fn parse(data_file: &path::PathBuf) -> io::Result<Vec<Row>> {
+    let mut table: Vec<Row> = Vec::with_capacity(400);
     let fd = fs::File::open(data_file)?;
     let reader = io::BufReader::new(&fd);
 
@@ -116,7 +115,7 @@ fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
     return Ok(table);
 }
 
-fn total_rank(table: &vec::Vec<Row>) -> f32 {
+fn total_rank(table: &Vec<Row>) -> f32 {
     let mut count: f32 = 0.0;
     for line in table {
         count += line.rank;
