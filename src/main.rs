@@ -30,6 +30,27 @@ struct ScoredRow {
     score: f32,
 }
 
+#[derive(Copy, Clone)]
+enum Scorer {
+    Rank,
+    Recent,
+    Frecent,
+}
+
+
+impl Row {
+    fn into_scored(self, mode: Scorer, now: u64) -> ScoredRow {
+        ScoredRow {
+            path: self.path,
+            score: match mode {
+                Scorer::Rank => self.rank,
+                Scorer::Recent => -((now - self.time) as f32),
+                Scorer::Frecent => frecent(self.rank, now - self.time),
+            },
+        }
+    }
+}
+
 fn unix_time() -> u64 {
     return time::SystemTime::now()
         .duration_since(time::UNIX_EPOCH)
@@ -68,20 +89,7 @@ fn search<P: AsRef<Path>>(
                 &Ok(ref row) => re.is_match(&row.path.to_string_lossy()),
                 &Err(_) => true,
             })
-            .map(move |row| {
-                row.map(|row| {
-                    let score: f32 = match mode {
-                        Scorer::Rank => row.rank,
-                        Scorer::Recent => -((now - row.time) as f32),
-                        Scorer::Frecent => frecent(row.rank, now - row.time),
-                    };
-
-                    ScoredRow {
-                        path: row.path,
-                        score,
-                    }
-                })
-            }),
+            .map(move |row| row.map(|row| row.into_scored(mode, now))),
     ))
 }
 
@@ -139,18 +147,16 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
     let mut table: Vec<Row> = parse(&data_file)?.collect::<Result<Vec<Row>>>()?;
     let what = what.as_ref();
 
-    let mut found = false;
-    for row in &mut table {
-        if row.path != what {
-            continue;
-        }
-        row.rank += 1.0;
-        row.time = unix_time();
-        found = true;
-        break;
-    }
+    // TODO: borrow checker fail.
+    let found = match table.iter_mut().find(|row| row.path == what) {
+        Some(row) => {
+            row.rank += 1.0;
+            row.time = unix_time();
+            true
+        },
+        None => false,
+    };
 
-    // if we didn't find the thing to add, add it now
     if !found {
         table.push(Row {
             path: what.to_path_buf(),
@@ -189,13 +195,6 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
     tmp.persist(data_file)?;
 
     return Ok(());
-}
-
-#[derive(Copy, Clone)]
-enum Scorer {
-    Rank,
-    Recent,
-    Frecent,
 }
 
 fn run() -> Result<i32> {
