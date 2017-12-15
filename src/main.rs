@@ -34,7 +34,10 @@ struct ScoredRow {
 }
 
 fn unix_time() -> u64 {
-    return time::SystemTime::now().duration_since(time::UNIX_EPOCH).unwrap().as_secs();
+    return time::SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 }
 
 fn frecent(rank: f32, dx: u64) -> f32 {
@@ -56,7 +59,9 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec
 
     let mut scored = vec::Vec::with_capacity(table.len());
 
-    let re = try!(regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description())));
+    let re = try!(
+        regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))
+    );
 
     let now = unix_time();
     for row in table {
@@ -70,7 +75,10 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec
             Scorer::Frecent => frecent(row.rank, now - row.time),
         };
 
-        scored.push(ScoredRow { path: row.path, score });
+        scored.push(ScoredRow {
+            path: row.path,
+            score,
+        });
     }
 
     scored.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
@@ -114,7 +122,7 @@ fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
 
         // if something has stopped being a directory, drop it
         if !path::Path::new(&row.path).is_dir() {
-            continue
+            continue;
         }
 
         table.push(row);
@@ -133,7 +141,6 @@ fn total_rank(table: &vec::Vec<Row>) -> f32 {
 }
 
 fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
-
     let mut table = try!(parse(data_file));
 
     let mut found = false;
@@ -149,7 +156,11 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
 
     // if we didn't find the thing to add, add it now
     if !found {
-        table.push(Row { path: String::from(what), rank: 1.0, time: unix_time() });
+        table.push(Row {
+            path: String::from(what),
+            rank: 1.0,
+            time: unix_time(),
+        });
     }
 
     // aging
@@ -164,15 +175,21 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
         .expect("couldn't make a temporary file near data file");
 
     {
-       let of = fs::File::create(tmp.path()).unwrap();
+        let of = fs::File::create(tmp.path()).unwrap();
 
         let mut writer = io::BufWriter::new(&of);
         for line in table {
             if line.rank < 0.98 {
-                continue
+                continue;
             }
 
-            try!(write!(writer, "{}|{}|{}\n", line.path, line.rank, line.time));
+            try!(write!(
+                writer,
+                "{}|{}|{}\n",
+                line.path,
+                line.rank,
+                line.time
+            ));
         }
     }
 
@@ -196,13 +213,13 @@ fn coded_main() -> u8 {
         Err(_) => {
             let home = env::home_dir().expect("home directory must be locatable");
             home.join(".z")
-        },
+        }
     };
 
     let whoami = args.next().unwrap();
     let command = args.next().unwrap_or(String::new());
     if "--add" == command {
-        if 3 != arg_count{
+        if 3 != arg_count {
             usage(&whoami);
             return 2;
         }
@@ -233,7 +250,6 @@ fn coded_main() -> u8 {
     let mut option = command;
     loop {
         if option.starts_with("-") {
-
             if option.len() < 2 {
                 println_stderr!("invalid option: [no option]");
                 return 3;
@@ -278,7 +294,10 @@ fn coded_main() -> u8 {
     }
 
     if subdirs {
-        expr.insert_str(0, format!("^{}/.*", env::current_dir().unwrap().to_str().unwrap()).as_str());
+        expr.insert_str(
+            0,
+            format!("^{}/.*", env::current_dir().unwrap().to_str().unwrap()).as_str(),
+        );
     }
 
     println!("expr: {}", expr);
