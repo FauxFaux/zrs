@@ -80,7 +80,7 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> Result<Vec<Sco
 }
 
 fn usage(whoami: &str) {
-    eprint!("usage: {} --add[-blocking] path", whoami);
+    eprintln!("usage: {} --add[-blocking] path", whoami);
 }
 
 fn to_row(line: &str) -> Result<Row> {
@@ -236,7 +236,7 @@ fn run() -> Result<i32> {
     loop {
         if option.starts_with("-") {
             if option.len() < 2 {
-                eprint!("invalid option: [no option]");
+                eprintln!("invalid option: [no option]");
                 return Ok(3);
             }
 
@@ -253,7 +253,7 @@ fn run() -> Result<i32> {
                 } else if 't' == c {
                     mode = Scorer::Recent;
                 } else {
-                    eprint!("unrecognised option: {}", option);
+                    eprintln!("unrecognised option: {}", option);
                     usage(&whoami);
                     return Ok(3);
                 }
