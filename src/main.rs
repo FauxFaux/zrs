@@ -190,9 +190,9 @@ fn run() -> Result<i32> {
     let mut args = env::args();
     let arg_count = args.len();
 
-    let data_file = match env::var("_Z_DATA") {
-        Ok(x) => path::PathBuf::from(&x),
-        Err(_) => {
+    let data_file = match env::var_os("_Z_DATA") {
+        Some(x) => path::PathBuf::from(&x),
+        None => {
             let home = env::home_dir().chain_err(|| "home directory must be locatable")?;
             home.join(".z")
         }
