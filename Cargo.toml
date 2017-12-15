@@ -1,12 +1,12 @@
 [package]
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
 name = "zrs"
 version = "0.1.0"
-authors = ["Chris West (Faux) <git@goeswhere.com>"]
-
-[profile.release]
-lto = true
 
 [dependencies]
+error-chain = "0.11"
 regex = "0.2"
 tempfile = "2"
 
+[profile.release]
+lto = true

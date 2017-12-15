@@ -1,5 +1,9 @@
+#[macro_use]
+extern crate error_chain;
 extern crate regex;
 extern crate tempfile;
+
+mod errors;
 
 use std::env;
 use std::fs;
@@ -7,12 +11,12 @@ use std::io;
 use std::path;
 use std::time;
 use std::vec;
-use std::process::Command;
 
-use std::error::Error;
 use std::io::BufRead;
 use std::io::Write;
+use std::process::Command;
 
+use errors::*;
 
 struct Row {
     path: String,
@@ -46,12 +50,12 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     return rank / 4.0;
 }
 
-fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec::Vec<ScoredRow>> {
+fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> Result<vec::Vec<ScoredRow>> {
     let table = parse(data_file)?;
 
     let mut scored = vec::Vec::with_capacity(table.len());
 
-    let re = regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
+    let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
     for row in table {
@@ -80,21 +84,13 @@ fn usage(whoami: &str) {
     eprint!("usage: {} --add[-blocking] path", whoami);
 }
 
-#[derive(Debug)]
-struct ParseError;
-
-fn to_row(line: &str) -> Result<Row, ParseError> {
+fn to_row(line: &str) -> Result<Row> {
     let mut parts = line.split('|');
-
-    let path: String = parts.next().ok_or(ParseError)?.to_string();
-
-    let rank_part: &str = parts.next().ok_or(ParseError)?;
-    let rank: f32 = rank_part.parse().map_err(|_| ParseError)?;
-
-    let time_part: &str = parts.next().ok_or(ParseError)?;
-    let time: u64 = time_part.parse().map_err(|_| ParseError)?;
-
-    return Ok(Row { path, rank, time });
+    return Ok(Row {
+        path: parts.next().ok_or("row needs a path")?.to_string(),
+        rank: parts.next().ok_or("row needs a rank")?.parse()?,
+        time: parts.next().ok_or("row needs a time")?.parse()?,
+    });
 }
 
 fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
@@ -103,8 +99,7 @@ fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
     let reader = io::BufReader::new(&fd);
 
     for line in reader.lines() {
-        let the_line = line.unwrap();
-        let parsed = to_row(&the_line);
+        let parsed = to_row(&line?);
         if parsed.is_err() {
             continue;
         }
@@ -130,7 +125,7 @@ fn total_rank(table: &vec::Vec<Row>) -> f32 {
     return count;
 }
 
-fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
+fn do_add(data_file: &path::PathBuf, what: &str) -> Result<()> {
     let mut table = parse(data_file)?;
 
     let mut found = false;
@@ -161,11 +156,15 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
     }
 
 
-    let tmp = tempfile::NamedTempFile::new_in(data_file.parent().unwrap())
-        .expect("couldn't make a temporary file near data file");
+    let tmp = tempfile::NamedTempFile::new_in(data_file
+        .parent()
+        .ok_or("data file cannot be at the root")?)
+        .chain_err(|| {
+        "couldn't make a temporary file near data file"
+    })?;
 
     {
-        let of = fs::File::create(tmp.path()).unwrap();
+        let of = fs::File::create(tmp.path())?;
 
         let mut writer = io::BufWriter::new(&of);
         for line in table {
@@ -173,13 +172,7 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
                 continue;
             }
 
-            write!(
-                writer,
-                "{}|{}|{}\n",
-                line.path,
-                line.rank,
-                line.time
-            )?;
+            writeln!(writer, "{}|{}|{}", line.path, line.rank, line.time)?;
         }
     }
 
@@ -194,14 +187,14 @@ enum Scorer {
     Frecent,
 }
 
-fn coded_main() -> u8 {
+fn run() -> Result<i32> {
     let mut args = env::args();
     let arg_count = args.len();
 
     let data_file = match env::var("_Z_DATA") {
         Ok(x) => path::PathBuf::from(&x),
         Err(_) => {
-            let home = env::home_dir().expect("home directory must be locatable");
+            let home = env::home_dir().chain_err(|| "home directory must be locatable")?;
             home.join(".z")
         }
     };
@@ -211,25 +204,28 @@ fn coded_main() -> u8 {
     if "--add" == command {
         if 3 != arg_count {
             usage(&whoami);
-            return 2;
+            return Ok(2);
         }
-        let arg = args.next().unwrap();
+        let arg = args.next().chain_err(|| "--add takes an argument")?;
         Command::new(whoami)
             .args(&["--add-blocking", &arg])
             .spawn()
-            .expect("helper failed to start");
-        return 0;
+            .chain_err(|| "helper failed to start")?;
+        return Ok(0);
     }
 
     if "--add-blocking" == command {
         if 3 != arg_count {
             usage(&whoami);
-            return 2;
+            return Ok(2);
         }
 
-        let err = do_add(&data_file, &args.next().unwrap());
-        err.unwrap();
-        return 0;
+        do_add(
+            &data_file,
+            &args.next()
+                .chain_err(|| "--add-blocking needs an argument")?,
+        )?;
+        return Ok(0);
     }
 
     let mut mode = Scorer::Frecent;
@@ -242,7 +238,7 @@ fn coded_main() -> u8 {
         if option.starts_with("-") {
             if option.len() < 2 {
                 eprint!("invalid option: [no option]");
-                return 3;
+                return Ok(3);
             }
 
             for c in option.chars().skip(1) {
@@ -252,7 +248,7 @@ fn coded_main() -> u8 {
                     list = true;
                 } else if 'h' == c {
                     usage(&whoami);
-                    return 2;
+                    return Ok(2);
                 } else if 'r' == c {
                     mode = Scorer::Rank;
                 } else if 't' == c {
@@ -260,7 +256,7 @@ fn coded_main() -> u8 {
                 } else {
                     eprint!("unrecognised option: {}", option);
                     usage(&whoami);
-                    return 3;
+                    return Ok(3);
                 }
             }
         } else {
@@ -272,11 +268,10 @@ fn coded_main() -> u8 {
             }
         }
 
-        let next = args.next();
-        if next.is_none() {
-            break;
-        }
-        option = next.unwrap();
+        option = match args.next() {
+            Some(option) => option,
+            None => break,
+        };
     }
 
     if expr.is_empty() {
@@ -286,7 +281,12 @@ fn coded_main() -> u8 {
     if subdirs {
         expr.insert_str(
             0,
-            format!("^{}/.*", env::current_dir().unwrap().to_str().unwrap()).as_str(),
+            format!(
+                "^{}/.*",
+                env::current_dir()?
+                    .to_str()
+                    .ok_or("current directory isn't valid utf-8")?
+            ).as_str(),
         );
     }
 
@@ -294,7 +294,7 @@ fn coded_main() -> u8 {
 
     let result = search(&data_file, expr.as_str(), mode).unwrap();
     if result.is_empty() {
-        return 7;
+        return Ok(7);
     }
 
     if list {
@@ -305,9 +305,7 @@ fn coded_main() -> u8 {
         println!("{}", result[result.len() - 1].path);
     }
 
-    return 0;
+    Ok(0)
 }
 
-fn main() {
-    std::process::exit(coded_main() as i32);
-}
+quick_main!(run);
