@@ -9,18 +9,10 @@ use std::time;
 use std::vec;
 use std::process::Command;
 
-// magic functionality-adding imports:
 use std::error::Error;
 use std::io::BufRead;
 use std::io::Write;
 
-// cargo-culting macros woooo
-macro_rules! println_stderr(
-    ($($arg:tt)*) => { {
-        let r = writeln!(&mut ::std::io::stderr(), $($arg)*);
-        r.expect("failed printing to stderr");
-    } }
-);
 
 struct Row {
     path: String,
@@ -55,13 +47,11 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 }
 
 fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec::Vec<ScoredRow>> {
-    let table = try!(parse(data_file));
+    let table = parse(data_file)?;
 
     let mut scored = vec::Vec::with_capacity(table.len());
 
-    let re = try!(
-        regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))
-    );
+    let re = regex::Regex::new(expr).map_err(|e| io::Error::new(io::ErrorKind::Other, e.description()))?;
 
     let now = unix_time();
     for row in table {
@@ -87,7 +77,7 @@ fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> io::Result<vec
 }
 
 fn usage(whoami: &str) {
-    println_stderr!("usage: {} --add[-blocking] path", whoami);
+    eprint!("usage: {} --add[-blocking] path", whoami);
 }
 
 #[derive(Debug)]
@@ -96,20 +86,20 @@ struct ParseError;
 fn to_row(line: &str) -> Result<Row, ParseError> {
     let mut parts = line.split('|');
 
-    let path: String = try!(parts.next().ok_or(ParseError)).to_string();
+    let path: String = parts.next().ok_or(ParseError)?.to_string();
 
-    let rank_part: &str = try!(parts.next().ok_or(ParseError));
-    let rank: f32 = try!(rank_part.parse().map_err(|_| ParseError));
+    let rank_part: &str = parts.next().ok_or(ParseError)?;
+    let rank: f32 = rank_part.parse().map_err(|_| ParseError)?;
 
-    let time_part: &str = try!(parts.next().ok_or(ParseError));
-    let time: u64 = try!(time_part.parse().map_err(|_| ParseError));
+    let time_part: &str = parts.next().ok_or(ParseError)?;
+    let time: u64 = time_part.parse().map_err(|_| ParseError)?;
 
     return Ok(Row { path, rank, time });
 }
 
 fn parse(data_file: &path::PathBuf) -> io::Result<vec::Vec<Row>> {
     let mut table: vec::Vec<Row> = vec::Vec::with_capacity(400);
-    let fd = try!(fs::File::open(data_file));
+    let fd = fs::File::open(data_file)?;
     let reader = io::BufReader::new(&fd);
 
     for line in reader.lines() {
@@ -141,7 +131,7 @@ fn total_rank(table: &vec::Vec<Row>) -> f32 {
 }
 
 fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
-    let mut table = try!(parse(data_file));
+    let mut table = parse(data_file)?;
 
     let mut found = false;
     for row in &mut table {
@@ -183,17 +173,17 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> io::Result<()> {
                 continue;
             }
 
-            try!(write!(
+            write!(
                 writer,
                 "{}|{}|{}\n",
                 line.path,
                 line.rank,
                 line.time
-            ));
+            )?;
         }
     }
 
-    try!(tmp.persist(data_file));
+    tmp.persist(data_file)?;
 
     return Ok(());
 }
@@ -251,7 +241,7 @@ fn coded_main() -> u8 {
     loop {
         if option.starts_with("-") {
             if option.len() < 2 {
-                println_stderr!("invalid option: [no option]");
+                eprint!("invalid option: [no option]");
                 return 3;
             }
 
@@ -268,7 +258,7 @@ fn coded_main() -> u8 {
                 } else if 't' == c {
                     mode = Scorer::Recent;
                 } else {
-                    println_stderr!("unrecognised option: {}", option);
+                    eprint!("unrecognised option: {}", option);
                     usage(&whoami);
                     return 3;
                 }
