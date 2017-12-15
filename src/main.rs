@@ -5,6 +5,7 @@ extern crate tempfile;
 
 mod errors;
 
+use std::cmp;
 use std::env;
 use std::fs;
 use std::io;
@@ -50,37 +51,38 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     return rank / 4.0;
 }
 
-fn search(data_file: &PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
+fn search(
+    data_file: &PathBuf,
+    expr: &str,
+    mode: Scorer,
+) -> Result<Box<Iterator<Item = Result<ScoredRow>>>> {
     let table = parse(data_file)?;
 
     let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
 
-    let mut scored = table
-        .filter(|row| match row {
-            Ok(row) => re.is_match(&row.path.to_string_lossy()),
-            Err(_) => true,
-        })
-        .map(|row| {
-            row.map(|row| {
-                let score: f32 = match mode {
-                    Scorer::Rank => row.rank,
-                    Scorer::Recent => -((now - row.time) as f32),
-                    Scorer::Frecent => frecent(row.rank, now - row.time),
-                };
-
-                ScoredRow {
-                    path: row.path,
-                    score,
-                }
+    Ok(Box::new(
+        table
+            .filter(move |row| match row {
+                &Ok(ref row) => re.is_match(&row.path.to_string_lossy()),
+                &Err(_) => true,
             })
-        })
-        .collect::<Result<Vec<ScoredRow>>>()?;
+            .map(move |row| {
+                row.map(|row| {
+                    let score: f32 = match mode {
+                        Scorer::Rank => row.rank,
+                        Scorer::Recent => -((now - row.time) as f32),
+                        Scorer::Frecent => frecent(row.rank, now - row.time),
+                    };
 
-    scored.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
-
-    return Ok(scored);
+                    ScoredRow {
+                        path: row.path,
+                        score,
+                    }
+                })
+            }),
+    ))
 }
 
 fn usage(whoami: &str) {
@@ -187,6 +189,7 @@ fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
     return Ok(());
 }
 
+#[derive(Copy, Clone)]
 enum Scorer {
     Rank,
     Recent,
@@ -299,20 +302,32 @@ fn run() -> Result<i32> {
 
     println!("expr: {}", expr);
 
-    let result = search(&data_file, expr.as_str(), mode).unwrap();
+    let mut result = search(&data_file, expr.as_str(), mode)?.collect::<Result<Vec<ScoredRow>>>()?;
     if result.is_empty() {
         return Ok(7);
     }
 
     if list {
+        result.sort_by(compare_score);
         for row in result {
             println!("{:>10} {:?}", row.score, row.path);
         }
     } else {
-        println!("{:?}", result[result.len() - 1].path);
+        let best = result
+            .into_iter()
+            .max_by(compare_score)
+            .expect("already checked if it was empty");
+        println!("{:?}", best.path);
     }
 
     Ok(0)
+}
+
+fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
+    match left.score.partial_cmp(&right.score) {
+        Some(c) => c,
+        None => left.score.is_nan().cmp(&right.score.is_nan()),
+    }
 }
 
 quick_main!(run);
