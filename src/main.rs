@@ -57,25 +57,26 @@ fn search(data_file: &PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow
 
     let now = unix_time();
 
-    let mut scored = table.filter_map(|row| Some(match row {
-        Ok(row) => {
-            if !re.is_match(&row.path.to_string_lossy()) {
-                return None;
-            }
+    let mut scored = table
+        .filter(|row| match row {
+            Ok(row) => re.is_match(&row.path.to_string_lossy()),
+            Err(_) => true,
+        })
+        .map(|row| {
+            row.map(|row| {
+                let score: f32 = match mode {
+                    Scorer::Rank => row.rank,
+                    Scorer::Recent => -((now - row.time) as f32),
+                    Scorer::Frecent => frecent(row.rank, now - row.time),
+                };
 
-            let score: f32 = match mode {
-                Scorer::Rank => row.rank,
-                Scorer::Recent => -((now - row.time) as f32),
-                Scorer::Frecent => frecent(row.rank, now - row.time),
-            };
-
-            Ok(ScoredRow {
-                path: row.path,
-                score
+                ScoredRow {
+                    path: row.path,
+                    score,
+                }
             })
-        },
-        Err(e) => Err(e),
-    })).collect::<Result<Vec<ScoredRow>>>()?;
+        })
+        .collect::<Result<Vec<ScoredRow>>>()?;
 
     scored.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
 
@@ -119,7 +120,7 @@ impl Iterator for IterTable {
 
 fn parse(data_file: &PathBuf) -> Result<IterTable> {
     Ok(IterTable {
-        lines: io::BufReader::new(fs::File::open(data_file)?).lines()
+        lines: io::BufReader::new(fs::File::open(data_file)?).lines(),
     })
 }
 
