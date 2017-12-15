@@ -51,8 +51,8 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     return rank / 4.0;
 }
 
-fn search(
-    data_file: &PathBuf,
+fn search<P: AsRef<Path>>(
+    data_file: P,
     expr: &str,
     mode: Scorer,
 ) -> Result<Box<Iterator<Item = Result<ScoredRow>>>> {
@@ -120,7 +120,7 @@ impl Iterator for IterTable {
     }
 }
 
-fn parse(data_file: &PathBuf) -> Result<IterTable> {
+fn parse<P: AsRef<Path>>(data_file: P) -> Result<IterTable> {
     Ok(IterTable {
         lines: io::BufReader::new(fs::File::open(data_file)?).lines(),
     })
@@ -135,12 +135,13 @@ fn total_rank(table: &Vec<Row>) -> f32 {
     return count;
 }
 
-fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
-    let mut table: Vec<Row> = parse(data_file)?.collect::<Result<Vec<Row>>>()?;
+fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
+    let mut table: Vec<Row> = parse(&data_file)?.collect::<Result<Vec<Row>>>()?;
+    let what = what.as_ref();
 
     let mut found = false;
     for row in &mut table {
-        if row.path != *what {
+        if row.path != what {
             continue;
         }
         row.rank += 1.0;
@@ -152,7 +153,7 @@ fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
     // if we didn't find the thing to add, add it now
     if !found {
         table.push(Row {
-            path: what.clone(),
+            path: what.to_path_buf(),
             rank: 1.0,
             time: unix_time(),
         });
@@ -167,6 +168,7 @@ fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
 
 
     let tmp = tempfile::NamedTempFile::new_in(data_file
+        .as_ref()
         .parent()
         .ok_or("data file cannot be at the root")?)
         .chain_err(|| {
@@ -232,8 +234,7 @@ fn run() -> Result<i32> {
         do_add(
             &data_file,
             &args.next()
-                .chain_err(|| "--add-blocking needs an argument")?
-                .into(),
+                .chain_err(|| "--add-blocking needs an argument")?,
         )?;
         return Ok(0);
     }
@@ -302,19 +303,22 @@ fn run() -> Result<i32> {
 
     println!("expr: {}", expr);
 
-    let mut result = search(&data_file, expr.as_str(), mode)?.collect::<Result<Vec<ScoredRow>>>()?;
-    if result.is_empty() {
+    let mut result = search(&data_file, expr.as_str(), mode)?.peekable();
+
+    if result.peek().is_none() {
+        // It's empty!
         return Ok(7);
     }
 
     if list {
-        result.sort_by(compare_score);
-        for row in result {
+        let mut table = result.collect::<Result<Vec<ScoredRow>>>()?;
+        table.sort_by(compare_score);
+        for row in table {
             println!("{:>10} {:?}", row.score, row.path);
         }
     } else {
         let best = result
-            .into_iter()
+            .filter_map(|row| row.ok())
             .max_by(compare_score)
             .expect("already checked if it was empty");
         println!("{:?}", best.path);
