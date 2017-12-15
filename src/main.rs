@@ -53,29 +53,29 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 fn search(data_file: &PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
     let table = parse(data_file)?;
 
-    let mut scored = Vec::new();
-
     let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
-    for row in table {
-        let row = row?;
 
-        if !re.is_match(&row.path.to_string_lossy()) {
-            continue;
-        }
+    let mut scored = table.filter_map(|row| Some(match row {
+        Ok(row) => {
+            if !re.is_match(&row.path.to_string_lossy()) {
+                return None;
+            }
 
-        let score: f32 = match mode {
-            Scorer::Rank => row.rank,
-            Scorer::Recent => -((now - row.time) as f32),
-            Scorer::Frecent => frecent(row.rank, now - row.time),
-        };
+            let score: f32 = match mode {
+                Scorer::Rank => row.rank,
+                Scorer::Recent => -((now - row.time) as f32),
+                Scorer::Frecent => frecent(row.rank, now - row.time),
+            };
 
-        scored.push(ScoredRow {
-            path: row.path,
-            score,
-        });
-    }
+            Ok(ScoredRow {
+                path: row.path,
+                score
+            })
+        },
+        Err(e) => Err(e),
+    })).collect::<Result<Vec<ScoredRow>>>()?;
 
     scored.sort_by(|a, b| a.score.partial_cmp(&b.score).unwrap());
 
@@ -171,9 +171,7 @@ fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
     })?;
 
     {
-        let of = fs::File::create(tmp.path())?;
-
-        let mut writer = io::BufWriter::new(&of);
+        let mut writer = io::BufWriter::new(&tmp);
         for line in table {
             if line.rank < 0.98 {
                 continue;
