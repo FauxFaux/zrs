@@ -8,23 +8,24 @@ mod errors;
 use std::env;
 use std::fs;
 use std::io;
-use std::path;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
 use std::time;
 
 use std::io::BufRead;
 use std::io::Write;
-use std::process::Command;
 
 use errors::*;
 
 struct Row {
-    path: String,
+    path: PathBuf,
     rank: f32,
     time: u64,
 }
 
 struct ScoredRow {
-    path: String,
+    path: PathBuf,
     score: f32,
 }
 
@@ -49,16 +50,18 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     return rank / 4.0;
 }
 
-fn search(data_file: &path::PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
+fn search(data_file: &PathBuf, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
     let table = parse(data_file)?;
 
-    let mut scored = Vec::with_capacity(table.len());
+    let mut scored = Vec::new();
 
     let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
     for row in table {
-        if !re.is_match(row.path.as_str()) {
+        let row = row?;
+
+        if !re.is_match(&row.path.to_string_lossy()) {
             continue;
         }
 
@@ -86,33 +89,38 @@ fn usage(whoami: &str) {
 fn to_row(line: &str) -> Result<Row> {
     let mut parts = line.split('|');
     return Ok(Row {
-        path: parts.next().ok_or("row needs a path")?.to_string(),
+        path: PathBuf::from(parts.next().ok_or("row needs a path")?),
         rank: parts.next().ok_or("row needs a rank")?.parse()?,
         time: parts.next().ok_or("row needs a time")?.parse()?,
     });
 }
 
-fn parse(data_file: &path::PathBuf) -> io::Result<Vec<Row>> {
-    let mut table: Vec<Row> = Vec::with_capacity(400);
-    let fd = fs::File::open(data_file)?;
-    let reader = io::BufReader::new(&fd);
+struct IterTable {
+    lines: io::Lines<io::BufReader<fs::File>>,
+}
 
-    for line in reader.lines() {
-        let parsed = to_row(&line?);
-        if parsed.is_err() {
-            continue;
+impl Iterator for IterTable {
+    type Item = Result<Row>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            match self.lines.next() {
+                Some(Ok(line)) => match to_row(&line) {
+                    Ok(ref row) if !row.path.is_dir() => continue,
+                    Ok(row) => return Some(Ok(row)),
+                    Err(e) => eprintln!("couldn't parse {:?}: {:?}", line, e),
+                },
+                Some(Err(e)) => return Some(Err(Error::with_chain(e, "reading file"))),
+                None => return None,
+            }
         }
-        let row = parsed.unwrap();
-
-        // if something has stopped being a directory, drop it
-        if !path::Path::new(&row.path).is_dir() {
-            continue;
-        }
-
-        table.push(row);
     }
+}
 
-    return Ok(table);
+fn parse(data_file: &PathBuf) -> Result<IterTable> {
+    Ok(IterTable {
+        lines: io::BufReader::new(fs::File::open(data_file)?).lines()
+    })
 }
 
 fn total_rank(table: &Vec<Row>) -> f32 {
@@ -124,12 +132,12 @@ fn total_rank(table: &Vec<Row>) -> f32 {
     return count;
 }
 
-fn do_add(data_file: &path::PathBuf, what: &str) -> Result<()> {
-    let mut table = parse(data_file)?;
+fn do_add(data_file: &PathBuf, what: &PathBuf) -> Result<()> {
+    let mut table: Vec<Row> = parse(data_file)?.collect::<Result<Vec<Row>>>()?;
 
     let mut found = false;
     for row in &mut table {
-        if row.path != what {
+        if row.path != *what {
             continue;
         }
         row.rank += 1.0;
@@ -141,7 +149,7 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> Result<()> {
     // if we didn't find the thing to add, add it now
     if !found {
         table.push(Row {
-            path: String::from(what),
+            path: what.clone(),
             rank: 1.0,
             time: unix_time(),
         });
@@ -171,7 +179,7 @@ fn do_add(data_file: &path::PathBuf, what: &str) -> Result<()> {
                 continue;
             }
 
-            writeln!(writer, "{}|{}|{}", line.path, line.rank, line.time)?;
+            writeln!(writer, "{:?}|{}|{}", line.path, line.rank, line.time)?;
         }
     }
 
@@ -191,7 +199,7 @@ fn run() -> Result<i32> {
     let arg_count = args.len();
 
     let data_file = match env::var_os("_Z_DATA") {
-        Some(x) => path::PathBuf::from(&x),
+        Some(x) => PathBuf::from(&x),
         None => {
             let home = env::home_dir().chain_err(|| "home directory must be locatable")?;
             home.join(".z")
@@ -222,7 +230,8 @@ fn run() -> Result<i32> {
         do_add(
             &data_file,
             &args.next()
-                .chain_err(|| "--add-blocking needs an argument")?,
+                .chain_err(|| "--add-blocking needs an argument")?
+                .into(),
         )?;
         return Ok(0);
     }
@@ -298,10 +307,10 @@ fn run() -> Result<i32> {
 
     if list {
         for row in result {
-            println!("{:>10} {}", row.score, row.path);
+            println!("{:>10} {:?}", row.score, row.path);
         }
     } else {
-        println!("{}", result[result.len() - 1].path);
+        println!("{:?}", result[result.len() - 1].path);
     }
 
     Ok(0)
