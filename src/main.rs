@@ -19,12 +19,14 @@ use std::io::Write;
 
 use errors::*;
 
+#[derive(Debug)]
 struct Row {
     path: PathBuf,
     rank: f32,
     time: u64,
 }
 
+#[derive(Debug)]
 struct ScoredRow {
     path: PathBuf,
     score: f32,
@@ -85,14 +87,14 @@ fn search<P: AsRef<Path>>(
 
     let now = unix_time();
 
-    Ok(Box::new(
-        table
-            .filter(move |row| match *row {
-                Ok(ref row) => re.is_match(&row.path.to_string_lossy()),
-                Err(_) => true,
-            })
-            .map(move |row| row.map(|row| row.into_scored(mode, now))),
-    ))
+    Ok(Box::new(table.filter_map(move |row| match row {
+        Ok(row) => if re.is_match(&row.path.to_string_lossy()) {
+            Some(Ok(row.into_scored(mode, now)))
+        } else {
+            None
+        },
+        Err(e) => Some(Err(e)),
+    })))
 }
 
 fn usage(whoami: &str) {
