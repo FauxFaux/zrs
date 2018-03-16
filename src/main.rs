@@ -37,7 +37,6 @@ enum Scorer {
     Frecent,
 }
 
-
 impl Row {
     fn into_scored(self, mode: Scorer, now: u64) -> ScoredRow {
         ScoredRow {
@@ -153,7 +152,7 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
             row.rank += 1.0;
             row.time = unix_time();
             true
-        },
+        }
         None => false,
     };
 
@@ -171,7 +170,6 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
             line.rank *= 0.99;
         }
     }
-
 
     let tmp = tempfile::NamedTempFile::new_in(data_file
         .as_ref()
