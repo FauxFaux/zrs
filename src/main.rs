@@ -51,24 +51,27 @@ impl Row {
 }
 
 fn unix_time() -> u64 {
-    return time::SystemTime::now()
+    time::SystemTime::now()
         .duration_since(time::UNIX_EPOCH)
         .unwrap()
-        .as_secs();
+        .as_secs()
 }
 
 fn frecent(rank: f32, dx: u64) -> f32 {
+    const HOUR: u64 = 3600;
+    const DAY: u64 = HOUR * 24;
+    const WEEK: u64 = DAY * 7;
+
     // relate frequency and time
-    if dx < 3600 {
-        return rank * 4.0;
+    if dx < HOUR {
+        rank * 4.0
+    } else if dx < DAY {
+        rank * 2.0
+    } else if dx < WEEK {
+        rank / 2.0
+    } else {
+        rank / 4.0
     }
-    if dx < 86400 {
-        return rank * 2.0;
-    }
-    if dx < 604800 {
-        return rank / 2.0;
-    }
-    return rank / 4.0;
 }
 
 fn search<P: AsRef<Path>>(
@@ -84,9 +87,9 @@ fn search<P: AsRef<Path>>(
 
     Ok(Box::new(
         table
-            .filter(move |row| match row {
-                &Ok(ref row) => re.is_match(&row.path.to_string_lossy()),
-                &Err(_) => true,
+            .filter(move |row| match *row {
+                Ok(ref row) => re.is_match(&row.path.to_string_lossy()),
+                Err(_) => true,
             })
             .map(move |row| row.map(|row| row.into_scored(mode, now))),
     ))
@@ -98,11 +101,11 @@ fn usage(whoami: &str) {
 
 fn to_row(line: &str) -> Result<Row> {
     let mut parts = line.split('|');
-    return Ok(Row {
+    Ok(Row {
         path: PathBuf::from(parts.next().ok_or("row needs a path")?),
         rank: parts.next().ok_or("row needs a rank")?.parse()?,
         time: parts.next().ok_or("row needs a time")?.parse()?,
-    });
+    })
 }
 
 struct IterTable {
@@ -133,13 +136,8 @@ fn parse<P: AsRef<Path>>(data_file: P) -> Result<IterTable> {
     })
 }
 
-fn total_rank(table: &Vec<Row>) -> f32 {
-    let mut count: f32 = 0.0;
-    for line in table {
-        count += line.rank;
-    }
-
-    return count;
+fn total_rank(table: &[Row]) -> f32 {
+    table.into_iter().map(|line| line.rank).sum()
 }
 
 fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
@@ -187,7 +185,7 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
             }
 
             let path = match line.path.to_str() {
-                Some(ref path) if path.contains('|') || path.contains('\n') => continue,
+                Some(path) if path.contains('|') || path.contains('\n') => continue,
                 Some(path) => path,
                 None => continue,
             };
@@ -197,7 +195,7 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
 
     tmp.persist(data_file)?;
 
-    return Ok(());
+    Ok(())
 }
 
 fn run() -> Result<i32> {
@@ -213,7 +211,7 @@ fn run() -> Result<i32> {
     };
 
     let whoami = args.next().unwrap();
-    let command = args.next().unwrap_or(String::new());
+    let command = args.next().unwrap_or_default();
     if "--add" == command {
         if 3 != arg_count {
             usage(&whoami);
@@ -248,7 +246,7 @@ fn run() -> Result<i32> {
 
     let mut option = command;
     loop {
-        if option.starts_with("-") {
+        if option.starts_with('-') {
             if option.len() < 2 {
                 eprintln!("invalid option: [no option]");
                 return Ok(3);
