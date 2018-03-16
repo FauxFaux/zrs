@@ -188,7 +188,12 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
                 continue;
             }
 
-            writeln!(writer, "{:?}|{}|{}", line.path, line.rank, line.time)?;
+            let path = match line.path.to_str() {
+                Some(ref path) if path.contains('|') || path.contains('\n') => continue,
+                Some(path) => path,
+                None => continue,
+            };
+            writeln!(writer, "{}|{}|{}", path, line.rank, line.time)?;
         }
     }
 
@@ -320,7 +325,7 @@ fn run() -> Result<i32> {
             .filter_map(|row| row.ok())
             .max_by(compare_score)
             .expect("already checked if it was empty");
-        println!("{:?}", best.path);
+        println!("{}", best.path.to_string_lossy());
     }
 
     Ok(0)
