@@ -4,16 +4,16 @@ extern crate regex;
 extern crate tempfile;
 
 use std::cmp;
-use std::process;
 use std::env;
 use std::fs;
 use std::io;
-use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
-use std::time;
 use std::io::BufRead;
 use std::io::Write;
+use std::path::Path;
+use std::path::PathBuf;
+use std::process;
+use std::process::Command;
+use std::time;
 
 use failure::Error;
 use failure::ResultExt;
@@ -87,11 +87,13 @@ fn search<P: AsRef<Path>>(
     let now = unix_time();
 
     Ok(Box::new(table.filter_map(move |row| match row {
-        Ok(row) => if re.is_match(&row.path.to_string_lossy()) {
-            Some(Ok(row.into_scored(mode, now)))
-        } else {
-            None
-        },
+        Ok(row) => {
+            if re.is_match(&row.path.to_string_lossy()) {
+                Some(Ok(row.into_scored(mode, now)))
+            } else {
+                None
+            }
+        }
         Err(e) => Some(Err(e)),
     })))
 }
@@ -103,9 +105,19 @@ fn usage(whoami: &str) {
 fn to_row(line: &str) -> Result<Row, Error> {
     let mut parts = line.split('|');
     Ok(Row {
-        path: PathBuf::from(parts.next().ok_or_else(|| format_err!("row needs a path"))?),
-        rank: parts.next().ok_or_else(|| format_err!("row needs a rank"))?.parse()?,
-        time: parts.next().ok_or_else(|| format_err!("row needs a time"))?.parse()?,
+        path: PathBuf::from(
+            parts
+                .next()
+                .ok_or_else(|| format_err!("row needs a path"))?,
+        ),
+        rank: parts
+            .next()
+            .ok_or_else(|| format_err!("row needs a rank"))?
+            .parse()?,
+        time: parts
+            .next()
+            .ok_or_else(|| format_err!("row needs a time"))?
+            .parse()?,
     })
 }
 
@@ -170,13 +182,13 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), E
         }
     }
 
-    let tmp = tempfile::NamedTempFile::new_in(data_file
-        .as_ref()
-        .parent()
-        .ok_or_else(|| format_err!("data file cannot be at the root"))?)
-        .with_context(|_| {
-        format_err!("couldn't make a temporary file near data file")
-    })?;
+    let tmp = tempfile::NamedTempFile::new_in(
+        data_file
+            .as_ref()
+            .parent()
+            .ok_or_else(|| format_err!("data file cannot be at the root"))?,
+    )
+    .with_context(|_| format_err!("couldn't make a temporary file near data file"))?;
 
     {
         let mut writer = io::BufWriter::new(&tmp);
@@ -206,7 +218,8 @@ fn run() -> Result<i32, Error> {
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
         None => {
-            let home = env::home_dir().ok_or_else(|| format_err!("home directory must be locatable"))?;
+            let home =
+                env::home_dir().ok_or_else(|| format_err!("home directory must be locatable"))?;
             home.join(".z")
         }
     };
@@ -218,7 +231,9 @@ fn run() -> Result<i32, Error> {
             usage(&whoami);
             return Ok(2);
         }
-        let arg = args.next().ok_or_else(|| format_err!("--add takes an argument"))?;
+        let arg = args
+            .next()
+            .ok_or_else(|| format_err!("--add takes an argument"))?;
         Command::new(whoami)
             .args(&["--add-blocking", &arg])
             .spawn()
@@ -234,7 +249,8 @@ fn run() -> Result<i32, Error> {
 
         do_add(
             &data_file,
-            &args.next()
+            &args
+                .next()
                 .ok_or_else(|| format_err!("--add-blocking needs an argument"))?,
         )?;
         return Ok(0);
@@ -298,7 +314,8 @@ fn run() -> Result<i32, Error> {
                 env::current_dir()?
                     .to_str()
                     .ok_or_else(|| format_err!("current directory isn't valid utf-8"))?
-            ).as_str(),
+            )
+            .as_str(),
         );
     }
 
