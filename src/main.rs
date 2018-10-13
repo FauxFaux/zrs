@@ -1,3 +1,5 @@
+#[macro_use]
+extern crate clap;
 extern crate dirs;
 #[macro_use]
 extern crate failure;
@@ -16,6 +18,9 @@ use std::process;
 use std::process::Command;
 use std::time;
 
+use clap::Arg;
+use clap::ArgGroup;
+use clap::SubCommand;
 use failure::Error;
 use failure::ResultExt;
 
@@ -94,10 +99,6 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
             }
         })
         .collect())
-}
-
-fn usage(whoami: &str) {
-    eprintln!("usage: {} --add[-blocking] path", whoami);
 }
 
 fn to_row(line: &str) -> Result<Row, Error> {
@@ -196,9 +197,6 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), E
 }
 
 fn run() -> Result<i32, Error> {
-    let mut args = env::args();
-    let arg_count = args.len();
-
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
         None => {
@@ -208,82 +206,101 @@ fn run() -> Result<i32, Error> {
         }
     };
 
-    let whoami = args.next().unwrap();
-    let command = args.next().unwrap_or_default();
-    if "--add" == command {
-        if 3 != arg_count {
-            usage(&whoami);
-            return Ok(2);
-        }
-        let arg = args
-            .next()
-            .ok_or_else(|| format_err!("--add takes an argument"))?;
-        Command::new(whoami)
-            .args(&["--add-blocking", &arg])
-            .spawn()
-            .with_context(|_| "helper failed to start")?;
-        return Ok(0);
-    }
+    let matches = clap::App::new(crate_name!())
+        .version(crate_version!())
+        .setting(clap::AppSettings::ArgsNegateSubcommands)
+        .setting(clap::AppSettings::DeriveDisplayOrder)
+        .setting(clap::AppSettings::DisableHelpSubcommand)
+        .group(ArgGroup::with_name("sort-mode").args(&["rank", "recent", "frecent"]))
+        .arg(
+            Arg::with_name("frecent")
+                .short("f")
+                .long("frecent")
+                .help("sort by a hybrid of the rank and age (default)"),
+        )
+        .arg(
+            Arg::with_name("rank")
+                .short("r")
+                .long("rank")
+                .help("sort by the match's rank directly (ignore the time component)"),
+        )
+        .arg(
+            Arg::with_name("recent")
+                .short("t")
+                .long("recent")
+                .help("sort by the match's age directly (ignore the rank component)"),
+        )
+        .arg(
+            Arg::with_name("current-dir")
+                .short("c")
+                .long("current-dir")
+                .help("only return matches in the current dir"),
+        )
+        .arg(
+            Arg::with_name("list")
+                .short("l")
+                .long("list")
+                .help("show all matching values"),
+        )
+        .arg(
+            Arg::with_name("expressions")
+                .multiple(true)
+                .help("terms to filter by"),
+        )
+        .subcommand(
+            SubCommand::with_name("add")
+                .help("add a new entry to the database")
+                .arg(
+                    Arg::with_name("blocking")
+                        .short("b")
+                        .long("blocking")
+                        .help("actually do the add"),
+                )
+                .arg(Arg::with_name("path").required(true)),
+        )
+        .get_matches();
 
-    if "--add-blocking" == command {
-        if 3 != arg_count {
-            usage(&whoami);
-            return Ok(2);
-        }
+    let whoami = env::args_os().next().unwrap();
 
-        do_add(
-            &data_file,
-            &args
-                .next()
-                .ok_or_else(|| format_err!("--add-blocking needs an argument"))?,
-        )?;
-        return Ok(0);
-    }
-
-    let mut mode = Scorer::Frecent;
-    let mut subdirs = false;
-    let mut list = false;
-    let mut expr: String = String::new();
-
-    let mut option = command;
-    loop {
-        if option.starts_with('-') {
-            if option.len() < 2 {
-                eprintln!("invalid option: [no option]");
-                return Ok(3);
+    match matches.subcommand() {
+        ("add", Some(matches)) => {
+            let path = matches.value_of_os("path").unwrap();
+            if matches.is_present("blocking") {
+                do_add(&data_file, path)?;
+            } else {
+                Command::new(whoami)
+                    .arg("add --blocking")
+                    .arg(path)
+                    .spawn()
+                    .with_context(|_| "helper failed to start")?;
             }
 
-            for c in option.chars().skip(1) {
-                if 'c' == c {
-                    subdirs = true;
-                } else if 'l' == c {
-                    list = true;
-                } else if 'h' == c {
-                    usage(&whoami);
-                    return Ok(2);
-                } else if 'r' == c {
-                    mode = Scorer::Rank;
-                } else if 't' == c {
-                    mode = Scorer::Recent;
-                } else {
-                    eprintln!("unrecognised option: {}", option);
-                    usage(&whoami);
-                    return Ok(3);
-                }
-            }
-        } else {
+            return Ok(0);
+        }
+
+        ("", None) => (),
+        _ => unreachable!(),
+    }
+
+    let mode = if matches.is_present("recent") {
+        Scorer::Recent
+    } else if matches.is_present("rank") {
+        Scorer::Rank
+    } else {
+        Scorer::Frecent
+    };
+
+    let subdirs = matches.is_present("current-dir");
+    let mut list = matches.is_present("list");
+    let mut expr = String::new();
+
+    if let Some(values) = matches.values_of("expressions") {
+        for val in values {
             if !expr.is_empty() {
                 expr.push_str(".*");
             }
-            if !option.is_empty() {
-                expr.push_str(option.as_str());
-            }
+            expr.push_str(val);
         }
-
-        option = match args.next() {
-            Some(option) => option,
-            None => break,
-        };
     }
 
     if expr.is_empty() {
@@ -302,8 +319,6 @@ fn run() -> Result<i32, Error> {
             .as_str(),
         );
     }
-
-    println!("expr: {}", expr);
 
     let mut table = search(&data_file, expr.as_str(), mode)?;
 
