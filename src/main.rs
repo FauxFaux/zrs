@@ -77,27 +77,23 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     }
 }
 
-fn search<P: AsRef<Path>>(
-    data_file: P,
-    expr: &str,
-    mode: Scorer,
-) -> Result<Box<Iterator<Item = Result<ScoredRow, Error>>>, Error> {
+fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
     let table = parse(data_file)?;
 
     let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
 
-    Ok(Box::new(table.filter_map(move |row| match row {
-        Ok(row) => {
+    Ok(table
+        .into_iter()
+        .filter_map(|row| {
             if re.is_match(&row.path.to_string_lossy()) {
-                Some(Ok(row.into_scored(mode, now)))
+                Some(row.into_scored(mode, now))
             } else {
                 None
             }
-        }
-        Err(e) => Some(Err(e)),
-    })))
+        })
+        .collect())
 }
 
 fn usage(whoami: &str) {
@@ -124,32 +120,17 @@ fn to_row(line: &str) -> Result<Row, Error> {
     })
 }
 
-struct IterTable {
-    lines: io::Lines<io::BufReader<fs::File>>,
-}
-
-impl Iterator for IterTable {
-    type Item = Result<Row, Error>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.lines.next() {
-                Some(Ok(line)) => match to_row(&line) {
-                    Ok(ref row) if !row.path.is_dir() => continue,
-                    Ok(row) => return Some(Ok(row)),
-                    Err(e) => eprintln!("couldn't parse {:?}: {:?}", line, e),
-                },
-                Some(Err(e)) => return Some(Err(e.into())),
-                None => return None,
-            }
+fn parse<P: AsRef<Path>>(data_file: P) -> Result<Vec<Row>, Error> {
+    let mut ret = Vec::with_capacity(500);
+    for line in io::BufReader::new(fs::File::open(data_file)?).lines() {
+        let line = line?;
+        match to_row(&line) {
+            Ok(row) => ret.push(row),
+            Err(e) => eprintln!("couldn't parse {:?}: {:?}", line, e),
         }
     }
-}
 
-fn parse<P: AsRef<Path>>(data_file: P) -> Result<IterTable, Error> {
-    Ok(IterTable {
-        lines: io::BufReader::new(fs::File::open(data_file)?).lines(),
-    })
+    Ok(ret)
 }
 
 fn total_rank(table: &[Row]) -> f32 {
@@ -157,7 +138,7 @@ fn total_rank(table: &[Row]) -> f32 {
 }
 
 fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), Error> {
-    let mut table: Vec<Row> = parse(&data_file)?.collect::<Result<Vec<Row>, Error>>()?;
+    let mut table = parse(&data_file)?;
     let what = what.as_ref();
 
     // TODO: borrow checker fail.
@@ -324,22 +305,21 @@ fn run() -> Result<i32, Error> {
 
     println!("expr: {}", expr);
 
-    let mut result = search(&data_file, expr.as_str(), mode)?.peekable();
+    let mut table = search(&data_file, expr.as_str(), mode)?;
 
-    if result.peek().is_none() {
+    if table.is_empty() {
         // It's empty!
         return Ok(7);
     }
 
     if list {
-        let mut table = result.collect::<Result<Vec<ScoredRow>, Error>>()?;
         table.sort_by(compare_score);
         for row in table {
             println!("{:>10} {:?}", row.score, row.path);
         }
     } else {
-        let best = result
-            .filter_map(|row| row.ok())
+        let best = table
+            .into_iter()
             .max_by(compare_score)
             .expect("already checked if it was empty");
         println!("{}", best.path.to_string_lossy());
