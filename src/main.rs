@@ -47,7 +47,8 @@ impl Row {
                 Scorer::Rank => self.rank,
                 Scorer::Recent => -((now - self.time) as f32),
                 Scorer::Frecent => frecent(self.rank, now - self.time),
-            },
+            }
+            .assert_finite(),
         }
     }
 }
@@ -114,7 +115,8 @@ fn to_row(line: &str) -> Result<Row, Error> {
         rank: parts
             .next()
             .ok_or_else(|| format_err!("row needs a rank"))?
-            .parse()?,
+            .parse::<f32>()?
+            .assert_finite(),
         time: parts
             .next()
             .ok_or_else(|| format_err!("row needs a time"))?
@@ -347,15 +349,25 @@ fn run() -> Result<i32, Error> {
 }
 
 fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
-    match left.score.partial_cmp(&right.score) {
-        Some(c) => c,
-        None => left.score.is_nan().cmp(&right.score.is_nan()),
-    }
+    left.score
+        .partial_cmp(&right.score)
+        .expect("no NaNs in scoring")
 }
 
 fn main() -> Result<(), Error> {
     match run() {
         Ok(exit) => process::exit(exit),
         Err(e) => Err(e),
+    }
+}
+
+trait FloatAnger {
+    fn assert_finite(&self) -> f32;
+}
+
+impl FloatAnger for f32 {
+    fn assert_finite(&self) -> f32 {
+        assert!(self.is_finite());
+        *self
     }
 }
