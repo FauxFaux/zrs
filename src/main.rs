@@ -260,16 +260,16 @@ fn run() -> Result<i32, Error> {
         )
         .get_matches();
 
-    let whoami = env::args_os().next().unwrap();
-
     match matches.subcommand() {
         ("add", Some(matches)) => {
             let path = matches.value_of_os("path").unwrap();
             if matches.is_present("blocking") {
                 do_add(&data_file, path)?;
             } else {
+                let whoami = env::args_os().next().unwrap();
                 Command::new(whoami)
-                    .arg("add --blocking")
+                    .arg("add")
+                    .arg("--blocking")
                     .arg(path)
                     .spawn()
                     .with_context(|_| "helper failed to start")?;
@@ -290,9 +290,17 @@ fn run() -> Result<i32, Error> {
         Scorer::Frecent
     };
 
-    let subdirs = matches.is_present("current-dir");
     let mut list = matches.is_present("list");
     let mut expr = String::new();
+
+    if matches.is_present("current-dir") {
+        expr.push_str(&regex::escape(
+            env::current_dir()?
+                .to_str()
+                .ok_or_else(|| format_err!("current directory isn't valid utf-8"))?,
+        ));
+        expr.push('/');
+    }
 
     if let Some(values) = matches.values_of("expressions") {
         for val in values {
@@ -301,23 +309,8 @@ fn run() -> Result<i32, Error> {
             }
             expr.push_str(val);
         }
-    }
-
-    if expr.is_empty() {
+    } else {
         list = true;
-    }
-
-    if subdirs {
-        expr.insert_str(
-            0,
-            format!(
-                "^{}/.*",
-                env::current_dir()?
-                    .to_str()
-                    .ok_or_else(|| format_err!("current directory isn't valid utf-8"))?
-            )
-            .as_str(),
-        );
     }
 
     let mut table = search(&data_file, expr.as_str(), mode)?;
