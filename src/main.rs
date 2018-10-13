@@ -1,11 +1,10 @@
 #[macro_use]
-extern crate error_chain;
+extern crate failure;
 extern crate regex;
 extern crate tempfile;
 
-mod errors;
-
 use std::cmp;
+use std::process;
 use std::env;
 use std::fs;
 use std::io;
@@ -13,11 +12,11 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time;
-
 use std::io::BufRead;
 use std::io::Write;
 
-use errors::*;
+use failure::Error;
+use failure::ResultExt;
 
 #[derive(Debug)]
 struct Row {
@@ -80,7 +79,7 @@ fn search<P: AsRef<Path>>(
     data_file: P,
     expr: &str,
     mode: Scorer,
-) -> Result<Box<Iterator<Item = Result<ScoredRow>>>> {
+) -> Result<Box<Iterator<Item = Result<ScoredRow, Error>>>, Error> {
     let table = parse(data_file)?;
 
     let re = regex::Regex::new(expr)?;
@@ -101,12 +100,12 @@ fn usage(whoami: &str) {
     eprintln!("usage: {} --add[-blocking] path", whoami);
 }
 
-fn to_row(line: &str) -> Result<Row> {
+fn to_row(line: &str) -> Result<Row, Error> {
     let mut parts = line.split('|');
     Ok(Row {
-        path: PathBuf::from(parts.next().ok_or("row needs a path")?),
-        rank: parts.next().ok_or("row needs a rank")?.parse()?,
-        time: parts.next().ok_or("row needs a time")?.parse()?,
+        path: PathBuf::from(parts.next().ok_or_else(|| format_err!("row needs a path"))?),
+        rank: parts.next().ok_or_else(|| format_err!("row needs a rank"))?.parse()?,
+        time: parts.next().ok_or_else(|| format_err!("row needs a time"))?.parse()?,
     })
 }
 
@@ -115,7 +114,7 @@ struct IterTable {
 }
 
 impl Iterator for IterTable {
-    type Item = Result<Row>;
+    type Item = Result<Row, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -125,14 +124,14 @@ impl Iterator for IterTable {
                     Ok(row) => return Some(Ok(row)),
                     Err(e) => eprintln!("couldn't parse {:?}: {:?}", line, e),
                 },
-                Some(Err(e)) => return Some(Err(Error::with_chain(e, "reading file"))),
+                Some(Err(e)) => return Some(Err(e.into())),
                 None => return None,
             }
         }
     }
 }
 
-fn parse<P: AsRef<Path>>(data_file: P) -> Result<IterTable> {
+fn parse<P: AsRef<Path>>(data_file: P) -> Result<IterTable, Error> {
     Ok(IterTable {
         lines: io::BufReader::new(fs::File::open(data_file)?).lines(),
     })
@@ -142,8 +141,8 @@ fn total_rank(table: &[Row]) -> f32 {
     table.into_iter().map(|line| line.rank).sum()
 }
 
-fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
-    let mut table: Vec<Row> = parse(&data_file)?.collect::<Result<Vec<Row>>>()?;
+fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), Error> {
+    let mut table: Vec<Row> = parse(&data_file)?.collect::<Result<Vec<Row>, Error>>()?;
     let what = what.as_ref();
 
     // TODO: borrow checker fail.
@@ -174,9 +173,9 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
     let tmp = tempfile::NamedTempFile::new_in(data_file
         .as_ref()
         .parent()
-        .ok_or("data file cannot be at the root")?)
-        .chain_err(|| {
-        "couldn't make a temporary file near data file"
+        .ok_or_else(|| format_err!("data file cannot be at the root"))?)
+        .with_context(|_| {
+        format_err!("couldn't make a temporary file near data file")
     })?;
 
     {
@@ -200,14 +199,14 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<()> {
     Ok(())
 }
 
-fn run() -> Result<i32> {
+fn run() -> Result<i32, Error> {
     let mut args = env::args();
     let arg_count = args.len();
 
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
         None => {
-            let home = env::home_dir().chain_err(|| "home directory must be locatable")?;
+            let home = env::home_dir().ok_or_else(|| format_err!("home directory must be locatable"))?;
             home.join(".z")
         }
     };
@@ -219,11 +218,11 @@ fn run() -> Result<i32> {
             usage(&whoami);
             return Ok(2);
         }
-        let arg = args.next().chain_err(|| "--add takes an argument")?;
+        let arg = args.next().ok_or_else(|| format_err!("--add takes an argument"))?;
         Command::new(whoami)
             .args(&["--add-blocking", &arg])
             .spawn()
-            .chain_err(|| "helper failed to start")?;
+            .with_context(|_| "helper failed to start")?;
         return Ok(0);
     }
 
@@ -236,7 +235,7 @@ fn run() -> Result<i32> {
         do_add(
             &data_file,
             &args.next()
-                .chain_err(|| "--add-blocking needs an argument")?,
+                .ok_or_else(|| format_err!("--add-blocking needs an argument"))?,
         )?;
         return Ok(0);
     }
@@ -298,7 +297,7 @@ fn run() -> Result<i32> {
                 "^{}/.*",
                 env::current_dir()?
                     .to_str()
-                    .ok_or("current directory isn't valid utf-8")?
+                    .ok_or_else(|| format_err!("current directory isn't valid utf-8"))?
             ).as_str(),
         );
     }
@@ -313,7 +312,7 @@ fn run() -> Result<i32> {
     }
 
     if list {
-        let mut table = result.collect::<Result<Vec<ScoredRow>>>()?;
+        let mut table = result.collect::<Result<Vec<ScoredRow>, Error>>()?;
         table.sort_by(compare_score);
         for row in table {
             println!("{:>10} {:?}", row.score, row.path);
@@ -336,4 +335,9 @@ fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
     }
 }
 
-quick_main!(run);
+fn main() -> Result<(), Error> {
+    match run() {
+        Ok(exit) => process::exit(exit),
+        Err(e) => Err(e),
+    }
+}

@@ -4,9 +4,9 @@ name = "zrs"
 version = "0.1.0"
 
 [dependencies]
-error-chain = "0.11"
-regex = "0.2"
-tempfile = "2"
+failure = "0.1"
+regex = "1"
+tempfile = "3"
 
 [profile.release]
 lto = true
