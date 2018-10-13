@@ -1,3 +1,4 @@
+extern crate dirs;
 #[macro_use]
 extern crate failure;
 extern crate regex;
@@ -219,7 +220,7 @@ fn run() -> Result<i32, Error> {
         Some(x) => PathBuf::from(&x),
         None => {
             let home =
-                env::home_dir().ok_or_else(|| format_err!("home directory must be locatable"))?;
+                dirs::home_dir().ok_or_else(|| format_err!("home directory must be locatable"))?;
             home.join(".z")
         }
     };
