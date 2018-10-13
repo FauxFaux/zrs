@@ -323,7 +323,7 @@ fn run() -> Result<i32, Error> {
     if list {
         table.sort_by(compare_score);
         for row in table {
-            println!("{:>10} {:?}", row.score, row.path);
+            println!("{:>10.3} {:?}", row.score, row.path);
         }
     } else {
         let best = table
