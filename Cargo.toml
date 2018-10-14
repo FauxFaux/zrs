@@ -7,9 +7,7 @@ version = "0.1.0"
 dirs = "1"
 regex = "1"
 tempfile = "3"
-
-[profile.release]
-lto = true
+nix = "0.11"
 
 [dependencies.clap]
 default-features = false
@@ -18,3 +16,6 @@ version = "2"
 [dependencies.failure]
 default-features = false
 version = "0.1"
+
+[profile.release]
+lto = true

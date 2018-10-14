@@ -3,6 +3,7 @@ extern crate clap;
 extern crate dirs;
 #[macro_use]
 extern crate failure;
+extern crate nix;
 extern crate regex;
 extern crate tempfile;
 
@@ -15,7 +16,6 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
-use std::process::Command;
 use std::time;
 
 use clap::Arg;
@@ -23,6 +23,7 @@ use clap::ArgGroup;
 use clap::SubCommand;
 use failure::Error;
 use failure::ResultExt;
+use nix::unistd;
 
 #[derive(Debug)]
 struct Row {
@@ -262,19 +263,23 @@ fn run() -> Result<i32, Error> {
 
     match matches.subcommand() {
         ("add", Some(matches)) => {
-            let path = matches.value_of_os("path").unwrap();
-            if matches.is_present("blocking") {
-                do_add(&data_file, path)?;
-            } else {
-                let whoami = env::args_os().next().unwrap();
-                Command::new(whoami)
-                    .arg("add")
-                    .arg("--blocking")
-                    .arg(path)
-                    .spawn()
-                    .with_context(|_| "helper failed to start")?;
+            if !matches.is_present("blocking") {
+                // TODO: reexec on platforms without nix?
+
+                // this is a cut-down version of unistd::daemon(),
+                // except we return instead of exiting. Just being paranoid,
+                // not actually expecting to be running long enough that this will matter.
+                match unistd::fork()? {
+                    unistd::ForkResult::Parent { .. } => return Ok(0),
+                    unistd::ForkResult::Child => {
+                        env::set_current_dir("/")?;
+                        unistd::close(0)?;
+                    }
+                }
             }
 
+            let path = matches.value_of_os("path").expect("required argument");
+            do_add(&data_file, path)?;
             return Ok(0);
         }
 
