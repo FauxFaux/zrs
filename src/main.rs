@@ -1,3 +1,4 @@
+extern crate boolinator;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
@@ -18,6 +19,7 @@ use std::path::PathBuf;
 use std::process;
 use std::time;
 
+use boolinator::Boolinator;
 use clap::Arg;
 use clap::ArgGroup;
 use clap::SubCommand;
@@ -25,7 +27,7 @@ use failure::Error;
 use failure::ResultExt;
 use nix::unistd;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Row {
     path: PathBuf,
     rank: f32,
@@ -86,19 +88,32 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
     let table = parse(data_file)?;
 
-    let re = regex::Regex::new(expr)?;
+    let sensitive = regex::Regex::new(expr)?;
 
     let now = unix_time();
+
     let mut scored: Vec<_> = table
-        .into_iter()
+        .iter()
         .filter_map(|row| {
-            if re.is_match(&row.path.to_string_lossy()) {
-                Some(row.into_scored(mode, now))
-            } else {
-                None
-            }
+            sensitive
+                .is_match(&row.path.to_string_lossy())
+                .as_some_from(|| row.clone().into_scored(mode, now))
         })
         .collect();
+
+    if scored.is_empty() {
+        let insensitive = regex::RegexBuilder::new(expr)
+            .case_insensitive(true)
+            .build()?;
+        scored = table
+            .into_iter()
+            .filter_map(|row| {
+                insensitive
+                    .is_match(&row.path.to_string_lossy())
+                    .as_some_from(|| row.into_scored(mode, now))
+            })
+            .collect();
+    }
 
     scored.sort_by(compare_score);
 
