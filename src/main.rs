@@ -89,8 +89,7 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
     let re = regex::Regex::new(expr)?;
 
     let now = unix_time();
-
-    Ok(table
+    let mut scored: Vec<_> = table
         .into_iter()
         .filter_map(|row| {
             if re.is_match(&row.path.to_string_lossy()) {
@@ -99,7 +98,11 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
                 None
             }
         })
-        .collect())
+        .collect();
+
+    scored.sort_by(compare_score);
+
+    Ok(scored)
 }
 
 fn to_row(line: &str) -> Result<Row, Error> {
@@ -259,6 +262,13 @@ fn run() -> Result<i32, Error> {
                 )
                 .arg(Arg::with_name("path").required(true)),
         )
+        .subcommand(
+            SubCommand::with_name("complete").arg(
+                Arg::with_name("line")
+                    .required(true)
+                    .help("the line we're trying to complete"),
+            ),
+        )
         .get_matches();
 
     match matches.subcommand() {
@@ -280,6 +290,20 @@ fn run() -> Result<i32, Error> {
 
             let path = matches.value_of_os("path").expect("required argument");
             do_add(&data_file, path)?;
+            return Ok(0);
+        }
+
+        ("complete", Some(matches)) => {
+            let mut line = matches.value_of("line").expect("required");
+            let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
+            if line.starts_with(&cmd) {
+                line = &line[cmd.len()..];
+            }
+            let escaped = regex::escape(line);
+            for row in search(&data_file, &escaped, Scorer::Frecent)? {
+                println!("{}", row.path.to_string_lossy());
+            }
+
             return Ok(0);
         }
 
@@ -318,14 +342,12 @@ fn run() -> Result<i32, Error> {
         list = true;
     }
 
-    let mut table = search(&data_file, expr.as_str(), mode)?;
+    let table = search(&data_file, expr.as_str(), mode)?;
 
     if table.is_empty() {
         // It's empty!
         return Ok(7);
     }
-
-    table.sort_by(compare_score);
 
     if list {
         for row in table {
