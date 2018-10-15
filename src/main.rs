@@ -118,7 +118,37 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
 
     scored.sort_by(compare_score);
 
+    if let Some(prefix) = common_prefix(&scored) {
+        if let Some(existing) = scored.iter().position(|row| row.path == prefix) {
+            scored.remove(existing);
+        }
+        scored.push(ScoredRow {
+            path: prefix,
+            score: ::std::f32::INFINITY,
+        })
+    }
+
     Ok(scored)
+}
+
+fn common_prefix(rows: &[ScoredRow]) -> Option<PathBuf> {
+    if rows.len() <= 1 {
+        return None;
+    }
+
+    let mut rows = rows.into_iter();
+    let mut shortest = rows.next().expect("len > 1").path.to_path_buf();
+
+    for part in rows {
+        let mut part = part.path.to_path_buf();
+        while !part.starts_with(&shortest) {
+            if !shortest.pop() || shortest.parent().is_none() {
+                return None;
+            }
+        }
+    }
+
+    Some(shortest)
 }
 
 fn to_row(line: &str) -> Result<Row, Error> {
@@ -404,5 +434,57 @@ impl FloatAnger for f32 {
     fn assert_finite(&self) -> f32 {
         assert!(self.is_finite());
         *self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+    use std::path::PathBuf;
+
+    use super::ScoredRow;
+
+    #[test]
+    fn pathbuf_pop() {
+        let mut p = PathBuf::from("/home/faux");
+        assert!(p.pop());
+        assert_eq!(PathBuf::from("/home"), p);
+        assert!(p.pop());
+        assert_eq!(PathBuf::from("/"), p);
+        // a path for / has no parent, but `pop()` succeeded
+        assert_eq!(None, p.parent());
+        assert!(!p.pop());
+
+        // further popping doesn't remove anything
+        assert_eq!(PathBuf::from("/"), p);
+    }
+
+    #[test]
+    fn common() {
+        use super::common_prefix;
+        assert_eq!(None, common_prefix(&[]));
+        assert_eq!(None, common_prefix(&[s("/home")]));
+        assert_eq!(None, common_prefix(&[s("/home"), s("/etc")]));
+        assert_eq!(
+            Some(PathBuf::from("/home")),
+            common_prefix(&[s("/home/faux"), s("/home/john")])
+        );
+
+        assert_eq!(
+            Some(PathBuf::from("/home")),
+            common_prefix(&[
+                s("/home/faux"),
+                s("/home/alex/public_html"),
+                s("/home/john"),
+                s("/home/alex")
+            ])
+        );
+    }
+
+    fn s<P: AsRef<Path>>(path: P) -> ScoredRow {
+        ScoredRow {
+            path: path.as_ref().to_path_buf(),
+            score: 0.,
+        }
     }
 }

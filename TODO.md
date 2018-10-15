@@ -9,5 +9,3 @@
  * echo (`-e` flag)
 
  * remove (`-x` flag)
-
- * common prefix matching
