@@ -325,17 +325,21 @@ fn run() -> Result<i32, Error> {
         return Ok(7);
     }
 
+    table.sort_by(compare_score);
+
     if list {
-        table.sort_by(compare_score);
         for row in table {
             println!("{:>10.3} {:?}", row.score, row.path);
         }
     } else {
-        let best = table
-            .into_iter()
-            .max_by(compare_score)
-            .expect("already checked if it was empty");
-        println!("{}", best.path.to_string_lossy());
+        for row in table.into_iter().rev() {
+            if !row.path.is_dir() {
+                eprintln!("not a dir: {:?}", row.path);
+                continue;
+            }
+            println!("{}", row.path.to_string_lossy());
+            break;
+        }
     }
 
     Ok(0)
