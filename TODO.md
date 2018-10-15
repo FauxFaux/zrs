@@ -9,3 +9,5 @@
  * echo (`-e` flag)
 
  * remove (`-x` flag)
+
+ * subcommands are.. uh.. ambiguous with searching
