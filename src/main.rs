@@ -1,4 +1,3 @@
-extern crate boolinator;
 #[macro_use]
 extern crate clap;
 extern crate dirs;
@@ -19,7 +18,6 @@ use std::path::PathBuf;
 use std::process;
 use std::time;
 
-use boolinator::Boolinator;
 use clap::Arg;
 use clap::ArgGroup;
 use clap::SubCommand;
@@ -88,32 +86,35 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
     let table = parse(data_file)?;
 
-    let sensitive = regex::Regex::new(expr)?;
-
     let now = unix_time();
 
-    let mut scored: Vec<_> = table
-        .iter()
-        .filter_map(|row| {
-            sensitive
-                .is_match(&row.path.to_string_lossy())
-                .as_some_from(|| row.clone().into_scored(mode, now))
-        })
-        .collect();
+    let mut matches: Vec<_> = {
+        let sensitive = regex::RegexBuilder::new(expr)
+            .case_insensitive(false)
+            .build()?;
 
-    if scored.is_empty() {
+        table
+            .iter()
+            .filter(|row| sensitive.is_match(&row.path.to_string_lossy()))
+            .cloned()
+            .collect()
+    };
+
+    if matches.is_empty() {
         let insensitive = regex::RegexBuilder::new(expr)
             .case_insensitive(true)
             .build()?;
-        scored = table
+
+        matches = table
             .into_iter()
-            .filter_map(|row| {
-                insensitive
-                    .is_match(&row.path.to_string_lossy())
-                    .as_some_from(|| row.into_scored(mode, now))
-            })
+            .filter(|row| insensitive.is_match(&row.path.to_string_lossy()))
             .collect();
     }
+
+    let mut scored: Vec<_> = matches
+        .into_iter()
+        .map(|row| row.into_scored(mode, now))
+        .collect();
 
     scored.sort_by(compare_score);
 
