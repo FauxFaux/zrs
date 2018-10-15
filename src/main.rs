@@ -346,7 +346,10 @@ fn run() -> Result<i32, Error> {
                 line = &line[cmd.len()..];
             }
             let escaped = regex::escape(line);
-            for row in search(&data_file, &escaped, Scorer::Frecent)? {
+            for row in search(&data_file, &escaped, Scorer::Frecent)?
+                .into_iter()
+                .rev()
+            {
                 println!("{}", row.path.to_string_lossy());
             }
 
