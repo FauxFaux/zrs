@@ -201,13 +201,13 @@ fn fork_is_parent() -> Result<bool, Error> {
     }
 }
 
-fn update_file<P: AsRef<Path>, F>(data_file: P, apply: F) -> Result<(), Error>
+fn update_file<P: AsRef<Path>, F, R>(data_file: P, apply: F) -> Result<R, Error>
 where
-    F: FnOnce(&mut Vec<Row>) -> Result<(), Error>,
+    F: FnOnce(&mut Vec<Row>) -> Result<R, Error>,
 {
     let mut table = parse(&data_file)?;
 
-    apply(&mut table)?;
+    let result = apply(&mut table)?;
 
     let tmp = tempfile::NamedTempFile::new_in(
         data_file
@@ -235,7 +235,7 @@ where
 
     tmp.persist(data_file)?;
 
-    Ok(())
+    Ok(result)
 }
 
 fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
@@ -320,6 +320,11 @@ fn run() -> Result<i32, Error> {
                 .help("terms to filter by"),
         )
         .arg(
+            Arg::with_name("clean")
+                .long("clean")
+                .help("remove entries which aren't dirs right now"),
+        )
+        .arg(
             Arg::with_name("add")
                 .long("add")
                 .hidden_short_help(true)
@@ -367,6 +372,20 @@ fn run() -> Result<i32, Error> {
             println!("{}", row.path.to_string_lossy());
         }
 
+        return Ok(0);
+    }
+
+    if matches.is_present("clean") {
+        let modified = update_file(data_file, |table| {
+            let start = table.len();
+            table.retain(|row| row.path.is_dir());
+            Ok(start - table.len())
+        })?;
+        println!(
+            "Cleaned {} {}.",
+            modified,
+            if 1 == modified { "entry" } else { "entries" }
+        );
         return Ok(0);
     }
 
