@@ -20,7 +20,6 @@ use std::time;
 
 use clap::Arg;
 use clap::ArgGroup;
-use clap::SubCommand;
 use failure::Error;
 use failure::ResultExt;
 use nix::unistd;
@@ -258,7 +257,6 @@ fn run() -> Result<i32, Error> {
 
     let matches = clap::App::new(crate_name!())
         .version(crate_version!())
-        .setting(clap::AppSettings::ArgsNegateSubcommands)
         .setting(clap::AppSettings::DeriveDisplayOrder)
         .setting(clap::AppSettings::DisableHelpSubcommand)
         .group(ArgGroup::with_name("sort-mode").args(&["rank", "recent", "frecent"]))
@@ -297,67 +295,64 @@ fn run() -> Result<i32, Error> {
                 .multiple(true)
                 .help("terms to filter by"),
         )
-        .subcommand(
-            SubCommand::with_name("add")
-                .help("add a new entry to the database")
-                .arg(
-                    Arg::with_name("blocking")
-                        .short("b")
-                        .long("blocking")
-                        .help("actually do the add"),
-                )
-                .arg(Arg::with_name("path").required(true)),
+        .arg(
+            Arg::with_name("add")
+                .long("add")
+                .hidden_short_help(true)
+                .value_name("PATH")
+                .help("add a new entry to the database"),
         )
-        .subcommand(
-            SubCommand::with_name("complete").arg(
-                Arg::with_name("line")
-                    .required(true)
-                    .help("the line we're trying to complete"),
-            ),
+        .arg(
+            Arg::with_name("add-blocking")
+                .long("add-blocking")
+                .hidden_short_help(true)
+                .value_name("PATH")
+                .help("add a new entry, without forking"),
+        )
+        .arg(
+            Arg::with_name("complete")
+                .long("complete")
+                .hidden_short_help(true)
+                .help("the line we're trying to complete"),
         )
         .get_matches();
 
-    match matches.subcommand() {
-        ("add", Some(matches)) => {
-            if !matches.is_present("blocking") {
-                // TODO: reexec on platforms without nix?
+    let blocking_add = matches.value_of_os("add-blocking");
+    let normal_add = matches.value_of_os("add");
+    if let Some(path) = normal_add.or(blocking_add) {
+        if blocking_add.is_some() {
+            // TODO: reexec on platforms without nix?
 
-                // this is a cut-down version of unistd::daemon(),
-                // except we return instead of exiting. Just being paranoid,
-                // not actually expecting to be running long enough that this will matter.
-                match unistd::fork()? {
-                    unistd::ForkResult::Parent { .. } => return Ok(0),
-                    unistd::ForkResult::Child => {
-                        env::set_current_dir("/")?;
-                        unistd::close(0)?;
-                    }
+            // this is a cut-down version of unistd::daemon(),
+            // except we return instead of exiting. Just being paranoid,
+            // not actually expecting to be running long enough that this will matter.
+            match unistd::fork()? {
+                unistd::ForkResult::Parent { .. } => return Ok(0),
+                unistd::ForkResult::Child => {
+                    env::set_current_dir("/")?;
+                    unistd::close(0)?;
                 }
             }
-
-            let path = matches.value_of_os("path").expect("required argument");
-            do_add(&data_file, path)?;
-            return Ok(0);
         }
 
-        ("complete", Some(matches)) => {
-            let mut line = matches.value_of("line").expect("required");
-            let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
-            if line.starts_with(&cmd) {
-                line = &line[cmd.len()..];
-            }
-            let escaped = regex::escape(line);
-            for row in search(&data_file, &escaped, Scorer::Frecent)?
-                .into_iter()
-                .rev()
-            {
-                println!("{}", row.path.to_string_lossy());
-            }
+        do_add(&data_file, path)?;
+        return Ok(0);
+    }
 
-            return Ok(0);
+    if let Some(mut line) = matches.value_of("complete") {
+        let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
+        if line.starts_with(&cmd) {
+            line = &line[cmd.len()..];
+        }
+        let escaped = regex::escape(line);
+        for row in search(&data_file, &escaped, Scorer::Frecent)?
+            .into_iter()
+            .rev()
+        {
+            println!("{}", row.path.to_string_lossy());
         }
 
-        ("", None) => (),
-        _ => unreachable!(),
+        return Ok(0);
     }
 
     let mode = if matches.is_present("recent") {
