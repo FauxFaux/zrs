@@ -187,34 +187,13 @@ fn total_rank(table: &[Row]) -> f32 {
     table.into_iter().map(|line| line.rank).sum()
 }
 
-fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), Error> {
+fn update_file<P: AsRef<Path>, F>(data_file: P, apply: F) -> Result<(), Error>
+where
+    F: FnOnce(&mut Vec<Row>) -> Result<(), Error>,
+{
     let mut table = parse(&data_file)?;
-    let what = what.as_ref();
 
-    // TODO: borrow checker fail.
-    let found = match table.iter_mut().find(|row| row.path == what) {
-        Some(row) => {
-            row.rank += 1.0;
-            row.time = unix_time();
-            true
-        }
-        None => false,
-    };
-
-    if !found {
-        table.push(Row {
-            path: what.to_path_buf(),
-            rank: 1.0,
-            time: unix_time(),
-        });
-    }
-
-    // aging
-    if total_rank(&table) > 9000.0 {
-        for line in &mut table {
-            line.rank *= 0.99;
-        }
-    }
+    apply(&mut table)?;
 
     let tmp = tempfile::NamedTempFile::new_in(
         data_file
@@ -241,6 +220,37 @@ fn do_add<P: AsRef<Path>, Q: AsRef<Path>>(data_file: P, what: Q) -> Result<(), E
     }
 
     tmp.persist(data_file)?;
+
+    Ok(())
+}
+
+fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
+    let what = what.as_ref();
+
+    // TODO: borrow checker fail.
+    let found = match table.iter_mut().find(|row| row.path == what) {
+        Some(row) => {
+            row.rank += 1.0;
+            row.time = unix_time();
+            true
+        }
+        None => false,
+    };
+
+    if !found {
+        table.push(Row {
+            path: what.to_path_buf(),
+            rank: 1.0,
+            time: unix_time(),
+        });
+    }
+
+    // aging
+    if total_rank(&table) > 9000.0 {
+        for line in table {
+            line.rank *= 0.99;
+        }
+    }
 
     Ok(())
 }
@@ -335,7 +345,7 @@ fn run() -> Result<i32, Error> {
             }
         }
 
-        do_add(&data_file, path)?;
+        update_file(data_file, |table| do_add(table, path))?;
         return Ok(0);
     }
 
@@ -400,7 +410,7 @@ fn run() -> Result<i32, Error> {
     } else {
         for row in table.into_iter().rev() {
             if !row.path.is_dir() {
-                eprintln!("not a dir: {:?}", row.path);
+                eprintln!("not a dir (run --clean to expunge): {:?}", row.path);
                 continue;
             }
             println!("{}", row.path.to_string_lossy());
