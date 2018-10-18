@@ -40,18 +40,18 @@ struct ScoredRow {
 #[derive(Copy, Clone)]
 enum Scorer {
     Rank,
-    Recent,
-    Frecent,
+    Recent(u64),
+    Frecent(u64),
 }
 
 impl Row {
-    fn into_scored(self, mode: Scorer, now: u64) -> ScoredRow {
+    fn into_scored(self, mode: Scorer) -> ScoredRow {
         ScoredRow {
             path: self.path,
             score: match mode {
                 Scorer::Rank => self.rank,
-                Scorer::Recent => -((now - self.time) as f32),
-                Scorer::Frecent => frecent(self.rank, now - self.time),
+                Scorer::Recent(now) => -(time_delta(now, self.time) as f32),
+                Scorer::Frecent(now) => frecent(self.rank, time_delta(now, self.time)),
             }
             .assert_finite(),
         }
@@ -63,6 +63,10 @@ fn unix_time() -> u64 {
         .duration_since(time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+fn time_delta(now: u64, then: u64) -> u64 {
+    now.checked_sub(then).unwrap_or(0)
 }
 
 fn frecent(rank: f32, dx: u64) -> f32 {
@@ -84,8 +88,6 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 
 fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
     let table = parse(data_file)?;
-
-    let now = unix_time();
 
     let mut matches: Vec<_> = {
         let sensitive = regex::RegexBuilder::new(expr)
@@ -112,7 +114,7 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
 
     let mut scored: Vec<_> = matches
         .into_iter()
-        .map(|row| row.into_scored(mode, now))
+        .map(|row| row.into_scored(mode))
         .collect();
 
     scored.sort_by(compare_score);
@@ -365,7 +367,7 @@ fn run() -> Result<i32, Error> {
             line = &line[cmd.len()..];
         }
         let escaped = regex::escape(line);
-        for row in search(&data_file, &escaped, Scorer::Frecent)?
+        for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))?
             .into_iter()
             .rev()
         {
@@ -390,11 +392,11 @@ fn run() -> Result<i32, Error> {
     }
 
     let mode = if matches.is_present("recent") {
-        Scorer::Recent
+        Scorer::Recent(unix_time())
     } else if matches.is_present("rank") {
         Scorer::Rank
     } else {
-        Scorer::Frecent
+        Scorer::Frecent(unix_time())
     };
 
     let mut list = matches.is_present("list");
