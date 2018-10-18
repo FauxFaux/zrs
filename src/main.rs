@@ -187,6 +187,20 @@ fn total_rank(table: &[Row]) -> f32 {
     table.into_iter().map(|line| line.rank).sum()
 }
 
+fn fork_is_parent() -> Result<bool, Error> {
+    // this is a cut-down version of unistd::daemon(),
+    // except we return instead of exiting. Just being paranoid,
+    // not actually expecting to be running long enough that this will matter.
+    match unistd::fork()? {
+        unistd::ForkResult::Parent { .. } => Ok(true),
+        unistd::ForkResult::Child => {
+            env::set_current_dir("/")?;
+            unistd::close(0)?;
+            Ok(false)
+        }
+    }
+}
+
 fn update_file<P: AsRef<Path>, F>(data_file: P, apply: F) -> Result<(), Error>
 where
     F: FnOnce(&mut Vec<Row>) -> Result<(), Error>,
@@ -331,17 +345,8 @@ fn run() -> Result<i32, Error> {
     let normal_add = matches.value_of_os("add");
     if let Some(path) = normal_add.or(blocking_add) {
         if blocking_add.is_none() {
-            // TODO: reexec on platforms without nix?
-
-            // this is a cut-down version of unistd::daemon(),
-            // except we return instead of exiting. Just being paranoid,
-            // not actually expecting to be running long enough that this will matter.
-            match unistd::fork()? {
-                unistd::ForkResult::Parent { .. } => return Ok(0),
-                unistd::ForkResult::Child => {
-                    env::set_current_dir("/")?;
-                    unistd::close(0)?;
-                }
+            if fork_is_parent()? {
+                return Ok(0);
             }
         }
 
