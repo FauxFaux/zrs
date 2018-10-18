@@ -320,7 +320,7 @@ fn run() -> Result<i32, Error> {
     let blocking_add = matches.value_of_os("add-blocking");
     let normal_add = matches.value_of_os("add");
     if let Some(path) = normal_add.or(blocking_add) {
-        if blocking_add.is_some() {
+        if blocking_add.is_none() {
             // TODO: reexec on platforms without nix?
 
             // this is a cut-down version of unistd::daemon(),
