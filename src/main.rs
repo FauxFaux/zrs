@@ -24,6 +24,10 @@ use failure::Error;
 use failure::ResultExt;
 use nix::unistd;
 
+enum Return {
+    DoCd, NoOutput, Pages,
+}
+
 #[derive(Debug, Clone)]
 struct Row {
     path: PathBuf,
@@ -271,7 +275,7 @@ fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
     Ok(())
 }
 
-fn run() -> Result<i32, Error> {
+fn run() -> Result<Return, Error> {
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
         None => {
@@ -343,6 +347,7 @@ fn run() -> Result<i32, Error> {
         .arg(
             Arg::with_name("complete")
                 .long("complete")
+                .value_name("PREFIX")
                 .hidden_short_help(true)
                 .help("the line we're trying to complete"),
         )
@@ -353,19 +358,20 @@ fn run() -> Result<i32, Error> {
     if let Some(path) = normal_add.or(blocking_add) {
         if blocking_add.is_none() {
             if fork_is_parent()? {
-                return Ok(0);
+                return Ok(Return::NoOutput);
             }
         }
 
         update_file(data_file, |table| do_add(table, path))?;
-        return Ok(0);
+        return Ok(Return::NoOutput);
     }
 
     if let Some(mut line) = matches.value_of("complete") {
         let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
         if line.starts_with(&cmd) {
-            line = &line[cmd.len()..];
+            line = &line[cmd.len()..].trim_left();
         }
+        println!("{}", line);
         let escaped = regex::escape(line);
         for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))?
             .into_iter()
@@ -374,7 +380,7 @@ fn run() -> Result<i32, Error> {
             println!("{}", row.path.to_string_lossy());
         }
 
-        return Ok(0);
+        return Ok(Return::Pages);
     }
 
     if matches.is_present("clean") {
@@ -388,7 +394,7 @@ fn run() -> Result<i32, Error> {
             modified,
             if 1 == modified { "entry" } else { "entries" }
         );
-        return Ok(0);
+        return Ok(Return::Pages);
     }
 
     let mode = if matches.is_present("recent") {
@@ -426,13 +432,14 @@ fn run() -> Result<i32, Error> {
 
     if table.is_empty() {
         // It's empty!
-        return Ok(7);
+        return Ok(Return::NoOutput);
     }
 
     if list {
         for row in table {
             println!("{:>10.3} {:?}", row.score, row.path);
         }
+        return Ok(Return::Pages);
     } else {
         for row in table.into_iter().rev() {
             if !row.path.is_dir() {
@@ -440,11 +447,13 @@ fn run() -> Result<i32, Error> {
                 continue;
             }
             println!("{}", row.path.to_string_lossy());
-            break;
+
+            // Nice!
+            return Ok(Return::DoCd);
         }
     }
 
-    Ok(0)
+    Ok(Return::NoOutput)
 }
 
 fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
@@ -455,7 +464,11 @@ fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
 
 fn main() -> Result<(), Error> {
     match run() {
-        Ok(exit) => process::exit(exit),
+        Ok(exit) => process::exit(match exit {
+            Return::DoCd => 69,
+            Return::NoOutput => 70,
+            Return::Pages => 71,
+        }),
         Err(e) => Err(e),
     }
 }

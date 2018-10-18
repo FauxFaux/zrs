@@ -31,123 +31,29 @@
 
 _z() {
 
-    local datafile="${_Z_DATA:-$HOME/.z}"
-
     # if symlink, dereference
-    [ -h "$datafile" ] && datafile=$(readlink "$datafile")
+    #[ -h "$datafile" ] && datafile=$(readlink "$datafile")
 
     # bail if we don't own ~/.z and $_Z_OWNER not set
-    [ -z "$_Z_OWNER" -a -f "$datafile" -a ! -O "$datafile" ] && return
+    #[ -z "$_Z_OWNER" -a -f "$datafile" -a ! -O "$datafile" ] && return
 
-    _z_dirs () {
-        local line
-        while read line; do
-            # only count directories
-            [ -d "${line%%\|*}" ] && echo "$line"
-        done < "$datafile"
-        return 0
-    }
-
-    # list/go
-    local echo fnd last list opt typ
-    while [ "$1" ]; do case "$1" in
-        --) while [ "$1" ]; do shift; fnd="$fnd${fnd:+ }$1";done;;
-        -*) opt=${1:1}; while [ "$opt" ]; do case ${opt:0:1} in
-                c) fnd="^$PWD $fnd";;
-                e) echo=1;;
-                h) echo "${_Z_CMD:-z} [-cehlrtx] args" >&2; return;;
-                l) list=1;;
-                r) typ="rank";;
-                t) typ="recent";;
-                x) sed -i -e "\:^${PWD}|.*:d" "$datafile";;
-            esac; opt=${opt:1}; done;;
-         *) fnd="$fnd${fnd:+ }$1";;
-    esac; last=$1; [ "$#" -gt 0 ] && shift; done
-    [ "$fnd" -a "$fnd" != "^$PWD " ] || list=1
-
-    # if we hit enter on a completion just go there
-    case "$last" in
-        # completions will always start with /
-        /*) [ -z "$list" -a -d "$last" ] && builtin cd "$last" && return;;
+    local output ret
+    output="$(zrs "$@")"
+    ret=$?
+    case ${ret} in
+      69)
+        builtin cd "${output}"
+        # return 0
+        ;;
+      70)
+        ;;
+      71)
+        echo "${output}"
+        ;;
+      *)
+        echo "zrs failed: ${ret}"
+        ;;
     esac
-
-    # no file yet
-    [ -f "$datafile" ] || return
-
-    local cd
-    cd="$( < <( _z_dirs ) awk -v t="$(date +%s)" -v list="$list" -v typ="$typ" -v q="$fnd" -F"|" '
-        function frecent(rank, time) {
-            # relate frequency and time
-            dx = t - time
-            if( dx < 3600 ) return rank * 4
-            if( dx < 86400 ) return rank * 2
-            if( dx < 604800 ) return rank / 2
-            return rank / 4
-        }
-        function output(matches, best_match, common) {
-            # list or return the desired directory
-            if( list ) {
-                cmd = "sort -n >&2"
-                for( x in matches ) {
-                    if( matches[x] ) {
-                        printf "%-10s %s\n", matches[x], x | cmd
-                    }
-                }
-                if( common ) {
-                    printf "%-10s %s\n", "common:", common > "/dev/stderr"
-                }
-            } else {
-                if( common ) best_match = common
-                print best_match
-            }
-        }
-        function common(matches) {
-            # find the common root of a list of matches, if it exists
-            for( x in matches ) {
-                if( matches[x] && (!short || length(x) < length(short)) ) {
-                    short = x
-                }
-            }
-            if( short == "/" ) return
-            for( x in matches ) if( matches[x] && index(x, short) != 1 ) {
-                return
-            }
-            return short
-        }
-        BEGIN {
-            gsub(" ", ".*", q)
-            hi_rank = ihi_rank = -9999999999
-        }
-        {
-            if( typ == "rank" ) {
-                rank = $2
-            } else if( typ == "recent" ) {
-                rank = $3 - t
-            } else rank = frecent($2, $3)
-            if( $1 ~ q ) {
-                matches[$1] = rank
-            } else if( tolower($1) ~ tolower(q) ) imatches[$1] = rank
-            if( matches[$1] && matches[$1] > hi_rank ) {
-                best_match = $1
-                hi_rank = matches[$1]
-            } else if( imatches[$1] && imatches[$1] > ihi_rank ) {
-                ibest_match = $1
-                ihi_rank = imatches[$1]
-            }
-        }
-        END {
-            # prefer case sensitive
-            if( best_match ) {
-                output(matches, best_match, common(matches))
-            } else if( ibest_match ) {
-                output(imatches, ibest_match, common(imatches))
-            }
-        }
-    ')"
-
-    [ $? -eq 0 ] && [ "$cd" ] && {
-      if [ "$echo" ]; then echo "$cd"; else builtin cd "$cd"; fi
-    }
 }
 
 alias ${_Z_CMD:-z}='_z 2>&1'
@@ -175,7 +81,7 @@ if type compctl >/dev/null 2>&1; then
         # tab completion
         local compl
         read -l compl
-        reply=(${(f)"$(zrs complete "$compl")"})
+        reply=(${(f)"$(zrs --complete "$compl")"})
     }
     compctl -U -K _z_zsh_tab_completion _z
 elif type complete >/dev/null 2>&1; then
