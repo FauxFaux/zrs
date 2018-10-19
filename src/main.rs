@@ -121,17 +121,16 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
         .map(|row| row.into_scored(mode))
         .collect();
 
-    scored.sort_by(compare_score);
-
     if let Some(prefix) = common_prefix(&scored) {
-        if let Some(existing) = scored.iter().position(|row| row.path == prefix) {
-            scored.remove(existing);
+        if let Some(row) = scored.iter_mut().find(|row| prefix == row.path) {
+            // if all of the matches have a common prefix,
+            // and that common prefix is in the list,
+            // then it is *much* more likely to be our guy.
+            row.score *= 100.;
         }
-        scored.push(ScoredRow {
-            path: prefix,
-            score: ::std::f32::INFINITY,
-        })
     }
+
+    scored.sort_by(compare_score);
 
     Ok(scored)
 }
