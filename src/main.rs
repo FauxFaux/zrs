@@ -12,7 +12,9 @@ use std::env;
 use std::fs;
 use std::io;
 use std::io::BufRead;
+use std::io::Read;
 use std::io::Write;
+use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process;
@@ -22,10 +24,13 @@ use clap::Arg;
 use clap::ArgGroup;
 use failure::Error;
 use failure::ResultExt;
+use nix::fcntl;
 use nix::unistd;
 
 enum Return {
-    DoCd, NoOutput, Pages,
+    DoCd,
+    NoOutput,
+    Pages,
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +96,7 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 }
 
 fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
-    let table = parse(data_file)?;
+    let table = parse(fs::File::open(data_file)?)?;
 
     let mut matches: Vec<_> = {
         let sensitive = regex::RegexBuilder::new(expr)
@@ -175,9 +180,9 @@ fn to_row(line: &str) -> Result<Row, Error> {
     })
 }
 
-fn parse<P: AsRef<Path>>(data_file: P) -> Result<Vec<Row>, Error> {
+fn parse<R: Read>(data_file: R) -> Result<Vec<Row>, Error> {
     let mut ret = Vec::with_capacity(500);
-    for line in io::BufReader::new(fs::File::open(data_file)?).lines() {
+    for line in io::BufReader::new(data_file).lines() {
         let line = line?;
         match to_row(&line) {
             Ok(row) => ret.push(row),
@@ -210,7 +215,11 @@ fn update_file<P: AsRef<Path>, F, R>(data_file: P, apply: F) -> Result<R, Error>
 where
     F: FnOnce(&mut Vec<Row>) -> Result<R, Error>,
 {
-    let mut table = parse(&data_file)?;
+    let lock = fs::File::open(&data_file)?;
+    fcntl::flock(lock.as_raw_fd(), fcntl::FlockArg::LockExclusive)?;
+
+    // Mmm, if we pass this by value, it will be dropped immediately, which we don't want
+    let mut table = parse(&lock)?;
 
     let result = apply(&mut table)?;
 
@@ -370,7 +379,6 @@ fn run() -> Result<Return, Error> {
         if line.starts_with(&cmd) {
             line = &line[cmd.len()..].trim_left();
         }
-        println!("{}", line);
         let escaped = regex::escape(line);
         for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))?
             .into_iter()
