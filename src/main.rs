@@ -343,8 +343,8 @@ fn run() -> Result<Return, Error> {
     }
 }
 
-fn add_entry(data_file: &PathBuf, blocking_add: bool, path: &OsStr) -> Result<Return, Error> {
-    if blocking_add {
+fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Result<Return, Error> {
+    if non_blocking_add {
         if fork_is_parent().with_context(|_| err_msg("forking"))? {
             return Ok(Return::NoOutput);
         }
