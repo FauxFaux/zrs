@@ -34,7 +34,7 @@ const HELPER_SCRIPT: &'static [u8] = include_bytes!("../z.sh");
 enum Return {
     DoCd,
     NoOutput,
-    Pages,
+    Success,
 }
 
 #[derive(Debug, Clone)]
@@ -403,7 +403,7 @@ fn run() -> Result<Return, Error> {
             println!("{}", row.path.to_string_lossy());
         }
 
-        return Ok(Return::Pages);
+        return Ok(Return::Success);
     }
 
     if matches.is_present("clean") {
@@ -418,7 +418,7 @@ fn run() -> Result<Return, Error> {
             modified,
             if 1 == modified { "entry" } else { "entries" }
         );
-        return Ok(Return::Pages);
+        return Ok(Return::Success);
     }
 
     if matches.is_present("add-to-profile") {
@@ -463,7 +463,7 @@ fn run() -> Result<Return, Error> {
             path.pop();
         }
 
-        return Ok(Return::Pages);
+        return Ok(Return::Success);
     }
 
     let mode = if matches.is_present("recent") {
@@ -509,7 +509,7 @@ fn run() -> Result<Return, Error> {
         for row in table {
             println!("{:>10.3} {:?}", row.score, row.path);
         }
-        return Ok(Return::Pages);
+        return Ok(Return::Success);
     } else {
         for row in table.into_iter().rev() {
             if !row.path.is_dir() {
@@ -537,7 +537,7 @@ fn main() -> Result<(), Error> {
         Ok(exit) => process::exit(match exit {
             Return::DoCd => 69,
             Return::NoOutput => 70,
-            Return::Pages => 71,
+            Return::Success => 0,
         }),
         Err(e) => Err(e),
     }

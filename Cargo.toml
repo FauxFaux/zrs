@@ -1,8 +1,14 @@
 [package]
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 name = "zrs"
-license = "MIT OR Apache-2.0"
 version = "0.1.0"
+
+description = "Jump to recently used directories"
+repository = "https://github.com/FauxFaux/zrs"
+readme = "README.md"
+
+categories = ["command-line-utilities", "development-tools"]
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 dirs = "1"

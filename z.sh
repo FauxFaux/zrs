@@ -48,8 +48,8 @@ _z() {
       70)
         # 70: NoOutput
         ;;
-      71)
-        # 71: Pages
+      0)
+        # 0: Success
         echo "${output}"
         ;;
       *)
