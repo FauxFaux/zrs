@@ -42,12 +42,15 @@ _z() {
     ret=$?
     case ${ret} in
       69)
+        # 69: DoCd
         builtin cd "${output}"
         # return 0
         ;;
       70)
+        # 70: NoOutput
         ;;
       71)
+        # 71: Pages
         echo "${output}"
         ;;
       *)
