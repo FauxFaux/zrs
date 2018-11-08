@@ -23,10 +23,18 @@ pub struct Row {
 
 fn to_row(line: &str) -> Result<Row, Error> {
     let mut parts = line.split('|');
+
+    let path = PathBuf::from(parts.next().ok_or_else(|| err_msg("row needs a path"))?);
+
     let rank = parts
         .next()
         .ok_or_else(|| err_msg("row needs a rank"))?
         .parse::<f32>()?;
+
+    let time = parts
+        .next()
+        .ok_or_else(|| err_msg("row needs a time"))?
+        .parse()?;
 
     ensure!(
         rank.is_finite(),
@@ -34,14 +42,7 @@ fn to_row(line: &str) -> Result<Row, Error> {
         rank
     );
 
-    Ok(Row {
-        path: PathBuf::from(parts.next().ok_or_else(|| err_msg("row needs a path"))?),
-        rank,
-        time: parts
-            .next()
-            .ok_or_else(|| err_msg("row needs a time"))?
-            .parse()?,
-    })
+    Ok(Row { path, rank, time })
 }
 
 pub fn parse<R: Read>(data_file: R) -> Result<Vec<Row>, Error> {
