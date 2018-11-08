@@ -11,6 +11,7 @@ mod store;
 
 use std::cmp;
 use std::env;
+use std::ffi::OsStr;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -48,17 +49,24 @@ enum Scorer {
     Frecent(u64),
 }
 
-impl Row {
-    fn into_scored(self, mode: Scorer) -> ScoredRow {
-        ScoredRow {
-            path: self.path,
-            score: match mode {
-                Scorer::Rank => self.rank,
-                Scorer::Recent(now) => -(time_delta(now, self.time) as f32),
-                Scorer::Frecent(now) => frecent(self.rank, time_delta(now, self.time)),
-            }
-            .assert_finite(),
-        }
+impl Scorer {
+    fn scored(self, row: Row) -> Result<ScoredRow, Error> {
+        let score = match self {
+            Scorer::Rank => row.rank,
+            Scorer::Recent(now) => -(time_delta(now, row.time) as f32),
+            Scorer::Frecent(now) => frecent(row.rank, time_delta(now, row.time)),
+        };
+
+        ensure!(
+            score.is_finite(),
+            "computed non-finite score from {:?}",
+            row
+        );
+
+        Ok(ScoredRow {
+            path: row.path,
+            score,
+        })
     }
 }
 
@@ -118,10 +126,10 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
             .collect();
     }
 
-    let mut scored: Vec<_> = matches
+    let mut scored = matches
         .into_iter()
-        .map(|row| row.into_scored(mode))
-        .collect();
+        .map(|row| mode.scored(row))
+        .collect::<Result<Vec<_>, Error>>()?;
 
     if let Some(prefix) = common_prefix(&scored) {
         if let Some(row) = scored.iter_mut().find(|row| prefix == row.path) {
@@ -290,95 +298,24 @@ fn run() -> Result<Return, Error> {
         )
         .get_matches();
 
-    let blocking_add = matches.value_of_os("add-blocking");
-    let normal_add = matches.value_of_os("add");
-    if let Some(path) = normal_add.or(blocking_add) {
-        if blocking_add.is_none() {
-            if fork_is_parent().with_context(|_| err_msg("forking"))? {
-                return Ok(Return::NoOutput);
-            }
+    {
+        let blocking_add = matches.value_of_os("add-blocking");
+        let normal_add = matches.value_of_os("add");
+        if let Some(path) = normal_add.or(blocking_add) {
+            return add_entry(&data_file, blocking_add.is_none(), path);
         }
-
-        store::update_file(data_file, |table| do_add(table, path))
-            .with_context(|_| err_msg("adding to file"))?;
-        return Ok(Return::NoOutput);
     }
 
     if let Some(mut line) = matches.value_of("complete") {
-        let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
-        if line.starts_with(&cmd) {
-            line = &line[cmd.len()..].trim_left();
-        }
-        let escaped = regex::escape(line);
-        for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))
-            .with_context(|_| err_msg("searching for completion data"))?
-            .into_iter()
-            .rev()
-        {
-            println!("{}", row.path.to_string_lossy());
-        }
-
-        return Ok(Return::Success);
+        return complete(&data_file, &mut line);
     }
 
     if matches.is_present("clean") {
-        let modified = store::update_file(data_file, |table| {
-            let start = table.len();
-            table.retain(|row| row.path.is_dir());
-            Ok(start - table.len())
-        })
-        .with_context(|_| err_msg("cleaning data file"))?;
-        println!(
-            "Cleaned {} {}.",
-            modified,
-            if 1 == modified { "entry" } else { "entries" }
-        );
-        return Ok(Return::Success);
+        return clean(&data_file);
     }
 
     if matches.is_present("add-to-profile") {
-        let mut data =
-            dirs::data_local_dir().ok_or_else(|| err_msg("couldn't find your .local/share dir"))?;
-        data.push("zrs");
-        fs::create_dir_all(&data).with_context(|_| format_err!("creating {:?}", data))?;
-        data.push("z.sh");
-        fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(&data)
-            .with_context(|_| format_err!("opening {:?}", data))?
-            .write_all(HELPER_SCRIPT)
-            .with_context(|_| err_msg("writing helper script"))?;
-
-        println!("written helper script to {:?}", data);
-
-        let data = data
-            .to_str()
-            .ok_or_else(|| err_msg("lazily refusing to handle non-utf8 paths"))?;
-        ensure!(
-            !data.contains('\''),
-            "cowardly refusing to handle paths with single quotes"
-        );
-
-        let data = format!("\n\n. '{}'\n", data);
-
-        let mut path = home_dir()?;
-
-        for rc in &[".zshrc", ".bashrc"] {
-            path.push(rc);
-            match fs::OpenOptions::new().append(true).open(&path) {
-                Ok(mut zshrc) => {
-                    zshrc.write_all(data.as_bytes())?;
-                    drop(zshrc);
-                    println!("appended '. .../z.sh' to {:?}", path);
-                }
-                Err(e) => eprintln!("couldn't append to {:?}: {:?}", path, e),
-            }
-            path.pop();
-        }
-
-        return Ok(Return::Success);
+        return add_to_profile();
     }
 
     let mode = if matches.is_present("recent") {
@@ -410,6 +347,8 @@ fn run() -> Result<Return, Error> {
             expr.push_str(val);
         }
     } else {
+        // even if there wasn't an explicit request to list, we had no expressions,
+        // so we'll just print the whole thing
         list = true;
     }
 
@@ -424,7 +363,7 @@ fn run() -> Result<Return, Error> {
         for row in table {
             println!("{:>10.3} {:?}", row.score, row.path);
         }
-        return Ok(Return::Success);
+        Ok(Return::Success)
     } else {
         for row in table.into_iter().rev() {
             if !row.path.is_dir() {
@@ -433,12 +372,105 @@ fn run() -> Result<Return, Error> {
             }
             println!("{}", row.path.to_string_lossy());
 
-            // Nice!
             return Ok(Return::DoCd);
+        }
+
+        Ok(Return::NoOutput)
+    }
+}
+
+fn add_entry(data_file: &PathBuf, blocking_add: bool, path: &OsStr) -> Result<Return, Error> {
+    if blocking_add {
+        if fork_is_parent().with_context(|_| err_msg("forking"))? {
+            return Ok(Return::NoOutput);
         }
     }
 
+    store::update_file(data_file, |table| do_add(table, path))
+        .with_context(|_| err_msg("adding to file"))?;
+
     Ok(Return::NoOutput)
+}
+
+fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return, Error> {
+    let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
+    if line.starts_with(&cmd) {
+        line = &line[cmd.len()..].trim_left();
+    }
+
+    let escaped = regex::escape(line);
+
+    for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))
+        .with_context(|_| err_msg("searching for completion data"))?
+        .into_iter()
+        .rev()
+    {
+        println!("{}", row.path.to_string_lossy());
+    }
+
+    Ok(Return::Success)
+}
+
+fn clean(data_file: &PathBuf) -> Result<Return, Error> {
+    let modified = store::update_file(data_file, |table| {
+        let start = table.len();
+        table.retain(|row| row.path.is_dir());
+        Ok(start - table.len())
+    })
+    .with_context(|_| err_msg("cleaning data file"))?;
+
+    println!(
+        "Cleaned {} {}.",
+        modified,
+        if 1 == modified { "entry" } else { "entries" }
+    );
+
+    Ok(Return::Success)
+}
+
+fn add_to_profile() -> Result<Return, Error> {
+    let mut data =
+        dirs::data_local_dir().ok_or_else(|| err_msg("couldn't find your .local/share dir"))?;
+    data.push("zrs");
+    fs::create_dir_all(&data).with_context(|_| format_err!("creating {:?}", data))?;
+    data.push("z.sh");
+    fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&data)
+        .with_context(|_| format_err!("opening {:?}", data))?
+        .write_all(HELPER_SCRIPT)
+        .with_context(|_| err_msg("writing helper script"))?;
+
+    println!("written helper script to {:?}", data);
+
+    let data = data
+        .to_str()
+        .ok_or_else(|| err_msg("lazily refusing to handle non-utf8 paths"))?;
+    ensure!(
+        !data.contains('\''),
+        "cowardly refusing to handle paths with single quotes"
+    );
+
+    let data = format!("\n\n. '{}'\n", data);
+
+    let mut path = home_dir()?;
+
+    for rc in &[".zshrc", ".bashrc"] {
+        path.push(rc);
+        match fs::OpenOptions::new().append(true).open(&path) {
+            Ok(mut zshrc) => {
+                zshrc.write_all(data.as_bytes())?;
+                drop(zshrc);
+                println!("appended '. .../z.sh' to {:?}", path);
+            }
+            Err(e) => eprintln!("couldn't append to {:?}: {:?}", path, e),
+        }
+        path.pop();
+    }
+
+    Ok(Return::Success)
 }
 
 fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
@@ -455,17 +487,6 @@ fn main() -> Result<(), Error> {
             Return::Success => 0,
         }),
         Err(e) => Err(e),
-    }
-}
-
-trait FloatAnger {
-    fn assert_finite(&self) -> f32;
-}
-
-impl FloatAnger for f32 {
-    fn assert_finite(&self) -> f32 {
-        assert!(self.is_finite());
-        *self
     }
 }
 
