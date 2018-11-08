@@ -44,7 +44,6 @@ _z() {
       69)
         # 69: DoCd
         builtin cd "${output}"
-        # return 0
         ;;
       70)
         # 70: NoOutput
