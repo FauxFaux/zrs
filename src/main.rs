@@ -30,12 +30,6 @@ use store::Row;
 
 const HELPER_SCRIPT: &'static [u8] = include_bytes!("../z.sh");
 
-enum Return {
-    DoCd,
-    NoOutput,
-    Success,
-}
-
 #[derive(Debug)]
 struct ScoredRow {
     path: PathBuf,
@@ -68,17 +62,6 @@ impl Scorer {
             score,
         })
     }
-}
-
-fn unix_time() -> u64 {
-    time::SystemTime::now()
-        .duration_since(time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-}
-
-fn time_delta(now: u64, then: u64) -> u64 {
-    now.checked_sub(then).unwrap_or(0)
 }
 
 fn frecent(rank: f32, dx: u64) -> f32 {
@@ -169,24 +152,9 @@ fn total_rank(table: &[Row]) -> f32 {
     table.into_iter().map(|line| line.rank).sum()
 }
 
-fn fork_is_parent() -> Result<bool, Error> {
-    // this is a cut-down version of unistd::daemon(),
-    // except we return instead of exiting. Just being paranoid,
-    // not actually expecting to be running long enough that this will matter.
-    match unistd::fork()? {
-        unistd::ForkResult::Parent { .. } => Ok(true),
-        unistd::ForkResult::Child => {
-            env::set_current_dir("/")?;
-            unistd::close(0)?;
-            Ok(false)
-        }
-    }
-}
-
 fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
     let what = what.as_ref();
 
-    // TODO: borrow checker fail.
     let found = match table.iter_mut().find(|row| row.path == what) {
         Some(row) => {
             row.rank += 1.0;
@@ -212,10 +180,6 @@ fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-fn home_dir() -> Result<PathBuf, Error> {
-    dirs::home_dir().ok_or_else(|| err_msg("home directory must be locatable"))
 }
 
 fn run() -> Result<Return, Error> {
@@ -431,8 +395,10 @@ fn clean(data_file: &PathBuf) -> Result<Return, Error> {
 fn add_to_profile() -> Result<Return, Error> {
     let mut data =
         dirs::data_local_dir().ok_or_else(|| err_msg("couldn't find your .local/share dir"))?;
+
     data.push("zrs");
     fs::create_dir_all(&data).with_context(|_| format_err!("creating {:?}", data))?;
+
     data.push("z.sh");
     fs::OpenOptions::new()
         .create(true)
@@ -479,6 +445,12 @@ fn compare_score(left: &ScoredRow, right: &ScoredRow) -> cmp::Ordering {
         .expect("no NaNs in scoring")
 }
 
+enum Return {
+    DoCd,
+    NoOutput,
+    Success,
+}
+
 fn main() -> Result<(), Error> {
     match run() {
         Ok(exit) => process::exit(match exit {
@@ -488,6 +460,35 @@ fn main() -> Result<(), Error> {
         }),
         Err(e) => Err(e),
     }
+}
+
+fn fork_is_parent() -> Result<bool, Error> {
+    // this is a cut-down version of unistd::daemon(),
+    // except we return instead of exiting. Just being paranoid,
+    // not actually expecting to be running long enough that this will matter.
+    match unistd::fork()? {
+        unistd::ForkResult::Parent { .. } => Ok(true),
+        unistd::ForkResult::Child => {
+            env::set_current_dir("/")?;
+            unistd::close(0)?;
+            Ok(false)
+        }
+    }
+}
+
+fn unix_time() -> u64 {
+    time::SystemTime::now()
+        .duration_since(time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+fn time_delta(now: u64, then: u64) -> u64 {
+    now.checked_sub(then).unwrap_or(0)
+}
+
+fn home_dir() -> Result<PathBuf, Error> {
+    dirs::home_dir().ok_or_else(|| err_msg("home directory must be locatable"))
 }
 
 #[cfg(test)]
