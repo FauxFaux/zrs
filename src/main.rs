@@ -29,6 +29,8 @@ use failure::ResultExt;
 use nix::fcntl;
 use nix::unistd;
 
+const HELPER_SCRIPT: &'static [u8] = include_bytes!("../z.sh");
+
 enum Return {
     DoCd,
     NoOutput,
@@ -289,14 +291,14 @@ fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
     Ok(())
 }
 
+fn home_dir() -> Result<PathBuf, Error> {
+    dirs::home_dir().ok_or_else(|| err_msg("home directory must be locatable"))
+}
+
 fn run() -> Result<Return, Error> {
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
-        None => {
-            let home =
-                dirs::home_dir().ok_or_else(|| err_msg("home directory must be locatable"))?;
-            home.join(".z")
-        }
+        None => home_dir()?.join(".z"),
     };
 
     let matches = clap::App::new(crate_name!())
@@ -343,6 +345,12 @@ fn run() -> Result<Return, Error> {
             Arg::with_name("clean")
                 .long("clean")
                 .help("remove entries which aren't dirs right now"),
+        )
+        .arg(
+            Arg::with_name("add-to-profile")
+                .long("add-to-profile")
+                .hidden_short_help(true)
+                .help("adds the helper script to the profile"),
         )
         .arg(
             Arg::with_name("add")
@@ -410,6 +418,51 @@ fn run() -> Result<Return, Error> {
             modified,
             if 1 == modified { "entry" } else { "entries" }
         );
+        return Ok(Return::Pages);
+    }
+
+    if matches.is_present("add-to-profile") {
+        let mut data =
+            dirs::data_local_dir().ok_or_else(|| err_msg("couldn't find your .local/share dir"))?;
+        data.push("zrs");
+        fs::create_dir_all(&data).with_context(|_| format_err!("creating {:?}", data))?;
+        data.push("z.sh");
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&data)
+            .with_context(|_| format_err!("opening {:?}", data))?
+            .write_all(HELPER_SCRIPT)
+            .with_context(|_| err_msg("writing helper script"))?;
+
+        println!("written helper script to {:?}", data);
+
+        let data = data
+            .to_str()
+            .ok_or_else(|| err_msg("lazily refusing to handle non-utf8 paths"))?;
+        ensure!(
+            !data.contains('\''),
+            "cowardly refusing to handle paths with single quotes"
+        );
+
+        let data = format!("\n\n. '{}'\n", data);
+
+        let mut path = home_dir()?;
+
+        for rc in &[".zshrc", ".bashrc"] {
+            path.push(rc);
+            match fs::OpenOptions::new().append(true).open(&path) {
+                Ok(mut zshrc) => {
+                    zshrc.write_all(data.as_bytes())?;
+                    drop(zshrc);
+                    println!("appended '. .../z.sh' to {:?}", path);
+                }
+                Err(e) => eprintln!("couldn't append to {:?}: {:?}", path, e),
+            }
+            path.pop();
+        }
+
         return Ok(Return::Pages);
     }
 
