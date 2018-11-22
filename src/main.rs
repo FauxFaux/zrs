@@ -82,7 +82,7 @@ fn frecent(rank: f32, dx: u64) -> f32 {
 }
 
 fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
-    let table = store::parse(fs::File::open(data_file).with_context(|_| err_msg("opening"))?)
+    let table = store::parse(store::open_data_file(data_file)?)
         .with_context(|_| err_msg("parsing"))?;
 
     let mut matches: Vec<_> = {

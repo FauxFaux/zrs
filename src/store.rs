@@ -62,7 +62,7 @@ pub fn update_file<P: AsRef<Path>, F, R>(data_file: P, apply: F) -> Result<R, Er
 where
     F: FnOnce(&mut Vec<Row>) -> Result<R, Error>,
 {
-    let lock = fs::File::open(&data_file).with_context(|_| err_msg("opening"))?;
+    let lock = open_data_file(&data_file)?;
     fcntl::flock(lock.as_raw_fd(), fcntl::FlockArg::LockExclusive)
         .with_context(|_| err_msg("locking"))?;
 
@@ -103,4 +103,10 @@ where
     mem::drop(lock);
 
     Ok(result)
+}
+
+pub fn open_data_file<P: AsRef<Path>>(data_file: P) -> Result<fs::File, Error> {
+    let data_file = data_file.as_ref();
+    Ok(fs::OpenOptions::new().read(true).write(true).create(true).open(data_file)
+           .with_context(|_| format_err!("opening/creating data file at {:?}", data_file))?)
 }
