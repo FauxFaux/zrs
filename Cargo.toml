@@ -10,11 +10,13 @@ readme = "README.md"
 categories = ["command-line-utilities", "development-tools"]
 license = "MIT OR Apache-2.0"
 
+edition = "2018"
+
 [dependencies]
 dirs = "1"
 regex = "1"
 tempfile = "3"
-nix = "0.11"
+nix = "0.12"
 
 [dependencies.clap]
 default-features = false
