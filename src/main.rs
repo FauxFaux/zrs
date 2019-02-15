@@ -359,7 +359,7 @@ fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Resul
 fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return, Error> {
     let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
     if line.starts_with(&cmd) {
-        line = &line[cmd.len()..].trim_left();
+        line = &line[cmd.len()..].trim_start();
     }
 
     let escaped = regex::escape(line);
