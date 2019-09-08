@@ -13,10 +13,10 @@ license = "MIT OR Apache-2.0"
 edition = "2018"
 
 [dependencies]
-dirs = "1"
+dirs = "2"
 regex = "1"
 tempfile = "3"
-nix = "0.13"
+nix = "0.15"
 
 [dependencies.clap]
 default-features = false
