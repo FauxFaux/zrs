@@ -28,7 +28,7 @@ use nix::unistd;
 
 use crate::store::Row;
 
-const HELPER_SCRIPT: &'static [u8] = include_bytes!("../z.sh");
+const HELPER_SCRIPT: &[u8] = include_bytes!("../z.sh");
 
 #[derive(Debug)]
 struct ScoredRow {
@@ -133,7 +133,7 @@ fn common_prefix(rows: &[ScoredRow]) -> Option<PathBuf> {
         return None;
     }
 
-    let mut rows = rows.into_iter();
+    let mut rows = rows.iter();
     let mut shortest = rows.next().expect("len > 1").path.to_path_buf();
 
     for part in rows {
@@ -149,7 +149,7 @@ fn common_prefix(rows: &[ScoredRow]) -> Option<PathBuf> {
 }
 
 fn total_rank(table: &[Row]) -> f32 {
-    table.into_iter().map(|line| line.rank).sum()
+    table.iter().map(|line| line.rank).sum()
 }
 
 fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
@@ -270,8 +270,8 @@ fn run() -> Result<Return, Error> {
         }
     }
 
-    if let Some(mut line) = matches.value_of("complete") {
-        return complete(&data_file, &mut line);
+    if let Some(line) = matches.value_of("complete") {
+        return complete(&data_file, &line);
     }
 
     if matches.is_present("clean") {
