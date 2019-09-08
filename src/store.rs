@@ -96,6 +96,16 @@ where
         }
     }
 
+    // best effort attempt to maintain uid/gid
+    // TODO: other attributes; mode is handled by umask.. maybe.
+    if let Ok(stat) = nix::sys::stat::stat(data_file.as_ref()) {
+        let _ = nix::unistd::chown(
+            tmp.path(),
+            Some(nix::unistd::Uid::from_raw(stat.st_uid)),
+            Some(nix::unistd::Gid::from_raw(stat.st_gid)),
+        );
+    }
+
     tmp.persist(data_file)
         .with_context(|_| err_msg("replacing"))?;
 
