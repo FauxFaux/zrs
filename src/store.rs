@@ -8,7 +8,9 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::path::PathBuf;
 
+use failure::ensure;
 use failure::err_msg;
+use failure::format_err;
 use failure::Error;
 use failure::ResultExt;
 use nix::fcntl;

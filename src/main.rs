@@ -1,12 +1,3 @@
-#[macro_use]
-extern crate clap;
-extern crate dirs;
-#[macro_use]
-extern crate failure;
-extern crate nix;
-extern crate regex;
-extern crate tempfile;
-
 mod store;
 
 use std::cmp;
@@ -19,9 +10,13 @@ use std::path::PathBuf;
 use std::process;
 use std::time;
 
+use clap::crate_name;
+use clap::crate_version;
 use clap::Arg;
 use clap::ArgGroup;
+use failure::ensure;
 use failure::err_msg;
+use failure::format_err;
 use failure::Error;
 use failure::ResultExt;
 use nix::unistd;
