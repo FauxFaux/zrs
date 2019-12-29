@@ -344,10 +344,8 @@ fn run() -> Result<Return, Error> {
 }
 
 fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Result<Return, Error> {
-    if non_blocking_add {
-        if fork_is_parent().with_context(|_| err_msg("forking"))? {
-            return Ok(Return::NoOutput);
-        }
+    if non_blocking_add && fork_is_parent().with_context(|_| err_msg("forking"))? {
+        return Ok(Return::NoOutput);
     }
 
     store::update_file(data_file, |table| do_add(table, path))
@@ -484,7 +482,7 @@ fn unix_time() -> u64 {
 }
 
 fn time_delta(now: u64, then: u64) -> u64 {
-    now.checked_sub(then).unwrap_or(0)
+    now.saturating_sub(then)
 }
 
 fn home_dir() -> Result<PathBuf, Error> {

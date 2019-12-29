@@ -1,7 +1,7 @@
 [package]
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 name = "zrs"
-version = "0.1.3"
+version = "0.1.4"
 
 description = "Jump to recently used directories"
 repository = "https://github.com/FauxFaux/zrs"
@@ -16,7 +16,7 @@ edition = "2018"
 dirs = "2"
 regex = "1"
 tempfile = "3"
-nix = "0.15"
+nix = "0.16"
 
 [dependencies.clap]
 default-features = false
