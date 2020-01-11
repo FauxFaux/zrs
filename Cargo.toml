@@ -16,6 +16,7 @@ edition = "2018"
 dirs = "2"
 regex = "1"
 tempfile = "3"
+twoway = "0.2"
 nix = "0.16"
 
 [dependencies.clap]

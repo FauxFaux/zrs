@@ -412,21 +412,33 @@ fn add_to_profile() -> Result<Return, Error> {
         "cowardly refusing to handle paths with single quotes"
     );
 
-    let data = format!("\n\n. '{}'\n", data);
+    let source_line = format!("\n\n. '{}'\n", data);
 
-    let mut path = home_dir()?;
+    let path = home_dir()?;
 
     for rc in &[".zshrc", ".bashrc"] {
+        let mut path = path.to_path_buf();
         path.push(rc);
+        match fs::read(&path) {
+            Ok(current) => {
+                if twoway::find_bytes(&current, data.as_bytes()).is_some() {
+                    println!("appears to already be present, not appending: {:?}", path);
+                    continue;
+                }
+            }
+            Err(e) => {
+                eprintln!("couldn't open {:?}: {:?}", path, e);
+                continue;
+            }
+        }
         match fs::OpenOptions::new().append(true).open(&path) {
             Ok(mut zshrc) => {
-                zshrc.write_all(data.as_bytes())?;
+                zshrc.write_all(source_line.as_bytes())?;
                 drop(zshrc);
                 println!("appended '. .../z.sh' to {:?}", path);
             }
             Err(e) => eprintln!("couldn't append to {:?}: {:?}", path, e),
         }
-        path.pop();
     }
 
     Ok(Return::Success)
