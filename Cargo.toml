@@ -1,7 +1,7 @@
 [package]
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 name = "zrs"
-version = "0.1.5"
+version = "0.1.6"
 
 description = "Jump to recently used directories"
 repository = "https://github.com/FauxFaux/zrs"
@@ -25,6 +25,7 @@ version = "2"
 
 [dependencies.failure]
 default-features = false
+features = ["std"]
 version = "0.1"
 
 [profile.release]
