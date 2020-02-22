@@ -1,7 +1,7 @@
 [package]
 authors = ["Chris West (Faux) <git@goeswhere.com>"]
 name = "zrs"
-version = "0.1.6"
+version = "0.1.7"
 
 description = "Jump to recently used directories"
 repository = "https://github.com/FauxFaux/zrs"
