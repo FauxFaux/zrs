@@ -17,7 +17,7 @@ dirs = "2"
 regex = "1"
 tempfile = "3"
 twoway = "0.2"
-nix = "0.16"
+nix = "0.17"
 
 [dependencies.clap]
 default-features = false
