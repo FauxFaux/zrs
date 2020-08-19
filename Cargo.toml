@@ -14,11 +14,11 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1"
-dirs = "2"
+dirs = "3"
 regex = "1"
 tempfile = "3"
 twoway = "0.2"
-nix = "0.17"
+nix = "0.18"
 
 [dependencies.clap]
 default-features = false
