@@ -8,11 +8,10 @@ use std::os::unix::io::AsRawFd;
 use std::path::Path;
 use std::path::PathBuf;
 
-use failure::ensure;
-use failure::err_msg;
-use failure::format_err;
-use failure::Error;
-use failure::ResultExt;
+use anyhow::anyhow;
+use anyhow::ensure;
+use anyhow::Context;
+use anyhow::Result;
 use nix::fcntl;
 use tempfile::NamedTempFile;
 
@@ -23,19 +22,19 @@ pub struct Row {
     pub time: u64,
 }
 
-fn to_row(line: &str) -> Result<Row, Error> {
+fn to_row(line: &str) -> Result<Row> {
     let mut parts = line.split('|');
 
-    let path = PathBuf::from(parts.next().ok_or_else(|| err_msg("row needs a path"))?);
+    let path = PathBuf::from(parts.next().ok_or_else(|| anyhow!("row needs a path"))?);
 
     let rank = parts
         .next()
-        .ok_or_else(|| err_msg("row needs a rank"))?
+        .ok_or_else(|| anyhow!("row needs a rank"))?
         .parse::<f32>()?;
 
     let time = parts
         .next()
-        .ok_or_else(|| err_msg("row needs a time"))?
+        .ok_or_else(|| anyhow!("row needs a time"))?
         .parse()?;
 
     ensure!(
@@ -47,10 +46,10 @@ fn to_row(line: &str) -> Result<Row, Error> {
     Ok(Row { path, rank, time })
 }
 
-pub fn parse<R: Read>(data_file: R) -> Result<Vec<Row>, Error> {
+pub fn parse<R: Read>(data_file: R) -> Result<Vec<Row>> {
     let mut ret = Vec::with_capacity(500);
     for line in io::BufReader::new(data_file).lines() {
-        let line = line.with_context(|_| err_msg("IO error during read"))?;
+        let line = line.with_context(|| anyhow!("IO error during read"))?;
         match to_row(&line) {
             Ok(row) => ret.push(row),
             Err(e) => eprintln!("couldn't parse {:?}: {:?}", line, e),
@@ -60,26 +59,26 @@ pub fn parse<R: Read>(data_file: R) -> Result<Vec<Row>, Error> {
     Ok(ret)
 }
 
-pub fn update_file<P: AsRef<Path>, F, R>(data_file: P, apply: F) -> Result<R, Error>
+pub fn update_file<P: AsRef<Path>, F, R>(data_file: P, apply: F) -> Result<R>
 where
-    F: FnOnce(&mut Vec<Row>) -> Result<R, Error>,
+    F: FnOnce(&mut Vec<Row>) -> Result<R>,
 {
     let lock = open_data_file(&data_file)?;
     fcntl::flock(lock.as_raw_fd(), fcntl::FlockArg::LockExclusive)
-        .with_context(|_| err_msg("locking"))?;
+        .with_context(|| anyhow!("locking"))?;
 
     // Mmm, if we pass this by value, it will be dropped immediately, which we don't want
-    let mut table = parse(&lock).with_context(|_| err_msg("parsing"))?;
+    let mut table = parse(&lock).with_context(|| anyhow!("parsing"))?;
 
-    let result = apply(&mut table).with_context(|_| err_msg("processing"))?;
+    let result = apply(&mut table).with_context(|| anyhow!("processing"))?;
 
     let tmp = NamedTempFile::new_in(
         data_file
             .as_ref()
             .parent()
-            .ok_or_else(|| err_msg("data file cannot be at the root"))?,
+            .ok_or_else(|| anyhow!("data file cannot be at the root"))?,
     )
-    .with_context(|_| err_msg("couldn't make a temporary file near data file"))?;
+    .with_context(|| anyhow!("couldn't make a temporary file near data file"))?;
 
     {
         let mut writer = io::BufWriter::new(&tmp);
@@ -94,7 +93,7 @@ where
                 None => continue,
             };
             writeln!(writer, "{}|{}|{}", path, line.rank, line.time)
-                .with_context(|_| err_msg("writing temporary value"))?;
+                .with_context(|| anyhow!("writing temporary value"))?;
         }
     }
 
@@ -109,7 +108,7 @@ where
     }
 
     tmp.persist(data_file)
-        .with_context(|_| err_msg("replacing"))?;
+        .with_context(|| anyhow!("replacing"))?;
 
     // just being explicit about when we expect the lock to live to
     mem::drop(lock);
@@ -117,12 +116,12 @@ where
     Ok(result)
 }
 
-pub fn open_data_file<P: AsRef<Path>>(data_file: P) -> Result<fs::File, Error> {
+pub fn open_data_file<P: AsRef<Path>>(data_file: P) -> Result<fs::File> {
     let data_file = data_file.as_ref();
     Ok(fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .open(data_file)
-        .with_context(|_| format_err!("opening/creating data file at {:?}", data_file))?)
+        .with_context(|| anyhow!("opening/creating data file at {:?}", data_file))?)
 }

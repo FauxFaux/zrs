@@ -10,15 +10,14 @@ use std::path::PathBuf;
 use std::process;
 use std::time;
 
+use anyhow::anyhow;
+use anyhow::ensure;
+use anyhow::Context;
+use anyhow::Result;
 use clap::crate_name;
 use clap::crate_version;
 use clap::Arg;
 use clap::ArgGroup;
-use failure::ensure;
-use failure::err_msg;
-use failure::format_err;
-use failure::Error;
-use failure::ResultExt;
 use nix::unistd;
 
 use crate::store::Row;
@@ -39,7 +38,7 @@ enum Scorer {
 }
 
 impl Scorer {
-    fn scored(self, row: Row) -> Result<ScoredRow, Error> {
+    fn scored(self, row: Row) -> Result<ScoredRow> {
         let score = match self {
             Scorer::Rank => row.rank,
             Scorer::Recent(now) => -(time_delta(now, row.time) as f32),
@@ -76,15 +75,15 @@ fn frecent(rank: f32, dx: u64) -> f32 {
     }
 }
 
-fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>, Error> {
+fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<ScoredRow>> {
     let table =
-        store::parse(store::open_data_file(data_file)?).with_context(|_| err_msg("parsing"))?;
+        store::parse(store::open_data_file(data_file)?).with_context(|| anyhow!("parsing"))?;
 
     let mut matches: Vec<_> = {
         let sensitive = regex::RegexBuilder::new(expr)
             .case_insensitive(false)
             .build()
-            .with_context(|_| format_err!("parsing regex: {:?}", expr))?;
+            .with_context(|| anyhow!("parsing regex: {:?}", expr))?;
 
         table
             .iter()
@@ -107,7 +106,7 @@ fn search<P: AsRef<Path>>(data_file: P, expr: &str, mode: Scorer) -> Result<Vec<
     let mut scored = matches
         .into_iter()
         .map(|row| mode.scored(row))
-        .collect::<Result<Vec<_>, Error>>()?;
+        .collect::<Result<Vec<_>>>()?;
 
     if let Some(prefix) = common_prefix(&scored) {
         if let Some(row) = scored.iter_mut().find(|row| prefix == row.path) {
@@ -147,7 +146,7 @@ fn total_rank(table: &[Row]) -> f32 {
     table.iter().map(|line| line.rank).sum()
 }
 
-fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
+fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<()> {
     let what = what.as_ref();
 
     let found = match table.iter_mut().find(|row| row.path == what) {
@@ -177,7 +176,7 @@ fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<(), Error> {
     Ok(())
 }
 
-fn run() -> Result<Return, Error> {
+fn run() -> Result<Return> {
     let data_file = match env::var_os("_Z_DATA") {
         Some(x) => PathBuf::from(&x),
         None => home_dir()?.join(".z"),
@@ -291,9 +290,9 @@ fn run() -> Result<Return, Error> {
     if matches.is_present("current-dir") {
         expr.push_str(&regex::escape(
             env::current_dir()
-                .with_context(|_| err_msg("finding current dir"))?
+                .with_context(|| anyhow!("finding current dir"))?
                 .to_str()
-                .ok_or_else(|| err_msg("current directory isn't valid utf-8"))?,
+                .ok_or_else(|| anyhow!("current directory isn't valid utf-8"))?,
         ));
         expr.push('/');
     }
@@ -311,7 +310,7 @@ fn run() -> Result<Return, Error> {
         list = true;
     }
 
-    let table = search(&data_file, expr.as_str(), mode).with_context(|_| err_msg("main search"))?;
+    let table = search(&data_file, expr.as_str(), mode).with_context(|| anyhow!("main search"))?;
 
     if table.is_empty() {
         // It's empty!
@@ -338,18 +337,18 @@ fn run() -> Result<Return, Error> {
     }
 }
 
-fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Result<Return, Error> {
-    if non_blocking_add && fork_is_parent().with_context(|_| err_msg("forking"))? {
+fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Result<Return> {
+    if non_blocking_add && fork_is_parent().with_context(|| anyhow!("forking"))? {
         return Ok(Return::NoOutput);
     }
 
     store::update_file(data_file, |table| do_add(table, path))
-        .with_context(|_| err_msg("adding to file"))?;
+        .with_context(|| anyhow!("adding to file"))?;
 
     Ok(Return::NoOutput)
 }
 
-fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return, Error> {
+fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return> {
     let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
     if line.starts_with(&cmd) {
         line = &line[cmd.len()..].trim_start();
@@ -358,7 +357,7 @@ fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return, Error> {
     let escaped = regex::escape(line);
 
     for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))
-        .with_context(|_| err_msg("searching for completion data"))?
+        .with_context(|| anyhow!("searching for completion data"))?
         .into_iter()
         .rev()
     {
@@ -368,13 +367,13 @@ fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return, Error> {
     Ok(Return::Success)
 }
 
-fn clean(data_file: &PathBuf) -> Result<Return, Error> {
+fn clean(data_file: &PathBuf) -> Result<Return> {
     let modified = store::update_file(data_file, |table| {
         let start = table.len();
         table.retain(|row| row.path.is_dir());
         Ok(start - table.len())
     })
-    .with_context(|_| err_msg("cleaning data file"))?;
+    .with_context(|| anyhow!("cleaning data file"))?;
 
     println!(
         "Cleaned {} {}.",
@@ -385,12 +384,12 @@ fn clean(data_file: &PathBuf) -> Result<Return, Error> {
     Ok(Return::Success)
 }
 
-fn add_to_profile() -> Result<Return, Error> {
+fn add_to_profile() -> Result<Return> {
     let mut data =
-        dirs::data_local_dir().ok_or_else(|| err_msg("couldn't find your .local/share dir"))?;
+        dirs::data_local_dir().ok_or_else(|| anyhow!("couldn't find your .local/share dir"))?;
 
     data.push("zrs");
-    fs::create_dir_all(&data).with_context(|_| format_err!("creating {:?}", data))?;
+    fs::create_dir_all(&data).with_context(|| anyhow!("creating {:?}", data))?;
 
     data.push("z.sh");
     fs::OpenOptions::new()
@@ -398,15 +397,15 @@ fn add_to_profile() -> Result<Return, Error> {
         .write(true)
         .truncate(true)
         .open(&data)
-        .with_context(|_| format_err!("opening {:?}", data))?
+        .with_context(|| anyhow!("opening {:?}", data))?
         .write_all(HELPER_SCRIPT)
-        .with_context(|_| err_msg("writing helper script"))?;
+        .with_context(|| anyhow!("writing helper script"))?;
 
     println!("written helper script to {:?}", data);
 
     let data = data
         .to_str()
-        .ok_or_else(|| err_msg("lazily refusing to handle non-utf8 paths"))?;
+        .ok_or_else(|| anyhow!("lazily refusing to handle non-utf8 paths"))?;
     ensure!(
         !data.contains('\''),
         "cowardly refusing to handle paths with single quotes"
@@ -456,7 +455,7 @@ enum Return {
     Success,
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<()> {
     match run() {
         Ok(exit) => process::exit(match exit {
             Return::DoCd => 69,
@@ -467,7 +466,7 @@ fn main() -> Result<(), Error> {
     }
 }
 
-fn fork_is_parent() -> Result<bool, Error> {
+fn fork_is_parent() -> Result<bool> {
     // this is a cut-down version of unistd::daemon(),
     // except we return instead of exiting. Just being paranoid,
     // not actually expecting to be running long enough that this will matter.
@@ -492,8 +491,8 @@ fn time_delta(now: u64, then: u64) -> u64 {
     now.saturating_sub(then)
 }
 
-fn home_dir() -> Result<PathBuf, Error> {
-    dirs::home_dir().ok_or_else(|| err_msg("home directory must be locatable"))
+fn home_dir() -> Result<PathBuf> {
+    dirs::home_dir().ok_or_else(|| anyhow!("home directory must be locatable"))
 }
 
 #[cfg(test)]
