@@ -260,6 +260,7 @@ fn run() -> Result<Return> {
         let blocking_add = matches.value_of_os("add-blocking");
         let normal_add = matches.value_of_os("add");
         if let Some(path) = normal_add.or(blocking_add) {
+            // this must not be called while there are threaded operations running
             return add_entry(&data_file, blocking_add.is_none(), path);
         }
     }
@@ -338,6 +339,7 @@ fn run() -> Result<Return> {
 }
 
 fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Result<Return> {
+    // this must not be called while there are threaded operations running
     if non_blocking_add && fork_is_parent().with_context(|| anyhow!("forking"))? {
         return Ok(Return::NoOutput);
     }
@@ -470,7 +472,8 @@ fn fork_is_parent() -> Result<bool> {
     // this is a cut-down version of unistd::daemon(),
     // except we return instead of exiting. Just being paranoid,
     // not actually expecting to be running long enough that this will matter.
-    match unistd::fork()? {
+    // Unsafe iff the parent's threads are doing other stuff. We don't have threads.
+    match unsafe { unistd::fork()? } {
         unistd::ForkResult::Parent { .. } => Ok(true),
         unistd::ForkResult::Child => {
             env::set_current_dir("/")?;
