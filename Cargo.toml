@@ -14,15 +14,12 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1"
+clap = { version = "4", features = ["cargo"] }
 dirs = "4"
 regex = "1"
 tempfile = "3"
 twoway = "0.2"
 nix = "0.26"
-
-[dependencies.clap]
-default-features = false
-version = "2"
 
 [profile.release]
 lto = true

@@ -14,9 +14,7 @@ use anyhow::anyhow;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
-use clap::crate_name;
-use clap::crate_version;
-use clap::Arg;
+use clap::{Arg, ArgAction};
 use clap::ArgGroup;
 use nix::unistd;
 
@@ -182,113 +180,117 @@ fn run() -> Result<Return> {
         None => home_dir()?.join(".z"),
     };
 
-    let matches = clap::App::new(crate_name!())
-        .version(crate_version!())
-        .setting(clap::AppSettings::DeriveDisplayOrder)
-        .setting(clap::AppSettings::DisableHelpSubcommand)
-        .group(ArgGroup::with_name("sort-mode").args(&["rank", "recent", "frecent"]))
+    let matches = clap::command!()
+        .group(ArgGroup::new("sort-mode").args(&["rank", "recent", "frecent"]))
         .arg(
-            Arg::with_name("frecent")
-                .short("f")
+            Arg::new("frecent")
+                .short('f')
                 .long("frecent")
+                .action(ArgAction::SetTrue)
                 .help("sort by a hybrid of the rank and age (default)"),
         )
         .arg(
-            Arg::with_name("rank")
-                .short("r")
+            Arg::new("rank")
+                .short('r')
                 .long("rank")
+                .action(ArgAction::SetTrue)
                 .help("sort by the match's rank directly (ignore the time component)"),
         )
         .arg(
-            Arg::with_name("recent")
-                .short("t")
+            Arg::new("recent")
+                .short('t')
                 .long("recent")
+                .action(ArgAction::SetTrue)
                 .help("sort by the match's age directly (ignore the rank component)"),
         )
         .arg(
-            Arg::with_name("current-dir")
-                .short("c")
+            Arg::new("current-dir")
+                .short('c')
                 .long("current-dir")
+                .action(ArgAction::SetTrue)
                 .help("only return matches in the current dir"),
         )
         .arg(
-            Arg::with_name("list")
-                .short("l")
+            Arg::new("list")
+                .short('l')
                 .long("list")
+                .action(ArgAction::SetTrue)
                 .help("show all matching values"),
         )
         .arg(
-            Arg::with_name("expressions")
-                .multiple(true)
+            Arg::new("expressions")
+                .num_args(0..)
                 .help("terms to filter by"),
         )
         .arg(
-            Arg::with_name("clean")
+            Arg::new("clean")
                 .long("clean")
+                .action(ArgAction::SetTrue)
                 .help("remove entries which aren't dirs right now"),
         )
         .arg(
-            Arg::with_name("add-to-profile")
+            Arg::new("add-to-profile")
                 .long("add-to-profile")
-                .hidden_short_help(true)
+                .hide_short_help(true)
+                .action(ArgAction::SetTrue)
                 .help("adds the helper script to the profile"),
         )
         .arg(
-            Arg::with_name("add")
+            Arg::new("add")
                 .long("add")
-                .hidden_short_help(true)
+                .hide_short_help(true)
                 .value_name("PATH")
                 .help("add a new entry to the database"),
         )
         .arg(
-            Arg::with_name("add-blocking")
+            Arg::new("add-blocking")
                 .long("add-blocking")
-                .hidden_short_help(true)
+                .hide_short_help(true)
                 .value_name("PATH")
                 .help("add a new entry, without forking"),
         )
         .arg(
-            Arg::with_name("complete")
+            Arg::new("complete")
                 .long("complete")
                 .value_name("PREFIX")
-                .hidden_short_help(true)
+                .hide_short_help(true)
                 .help("the line we're trying to complete"),
         )
         .get_matches();
 
     {
-        let blocking_add = matches.value_of_os("add-blocking");
-        let normal_add = matches.value_of_os("add");
+        let blocking_add = matches.get_one::<&OsStr>("add-blocking");
+        let normal_add = matches.get_one("add");
         if let Some(path) = normal_add.or(blocking_add) {
             // this must not be called while there are threaded operations running
             return add_entry(&data_file, blocking_add.is_none(), path);
         }
     }
 
-    if let Some(line) = matches.value_of("complete") {
+    if let Some(line) = matches.get_one::<&str>("complete") {
         return complete(&data_file, line);
     }
 
-    if matches.is_present("clean") {
+    if matches.get_flag("clean") {
         return clean(&data_file);
     }
 
-    if matches.is_present("add-to-profile") {
+    if matches.get_flag("add-to-profile") {
         return add_to_profile();
     }
 
-    let mode = if matches.is_present("recent") {
+    let mode = if matches.get_flag("recent") {
         Scorer::Recent(unix_time())
-    } else if matches.is_present("rank") {
+    } else if matches.get_flag("rank") {
         Scorer::Rank
     } else {
         Scorer::Frecent(unix_time())
     };
 
-    let mut list = matches.is_present("list");
+    let mut list = matches.get_flag("list");
     let mut expr = String::new();
 
-    if matches.is_present("current-dir") {
+    if matches.get_flag("current-dir") {
         expr.push_str(&regex::escape(
             env::current_dir()
                 .with_context(|| anyhow!("finding current dir"))?
@@ -298,7 +300,7 @@ fn run() -> Result<Return> {
         expr.push('/');
     }
 
-    if let Some(values) = matches.values_of("expressions") {
+    if let Some(values) = matches.get_many::<&str>("expressions") {
         for val in values {
             if !expr.is_empty() {
                 expr.push_str(".*");
