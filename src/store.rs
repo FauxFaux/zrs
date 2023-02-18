@@ -118,10 +118,10 @@ where
 
 pub fn open_data_file<P: AsRef<Path>>(data_file: P) -> Result<fs::File> {
     let data_file = data_file.as_ref();
-    Ok(fs::OpenOptions::new()
+    fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .open(data_file)
-        .with_context(|| anyhow!("opening/creating data file at {:?}", data_file))?)
+        .with_context(|| anyhow!("opening/creating data file at {:?}", data_file))
 }

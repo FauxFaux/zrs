@@ -167,7 +167,7 @@ fn do_add<Q: AsRef<Path>>(table: &mut Vec<Row>, what: Q) -> Result<()> {
     }
 
     // aging
-    if total_rank(&table) > 9000.0 {
+    if total_rank(table) > 9000.0 {
         for line in table {
             line.rank *= 0.99;
         }
@@ -266,7 +266,7 @@ fn run() -> Result<Return> {
     }
 
     if let Some(line) = matches.value_of("complete") {
-        return complete(&data_file, &line);
+        return complete(&data_file, line);
     }
 
     if matches.is_present("clean") {
@@ -353,12 +353,12 @@ fn add_entry(data_file: &PathBuf, non_blocking_add: bool, path: &OsStr) -> Resul
 fn complete(data_file: &PathBuf, mut line: &str) -> Result<Return> {
     let cmd = env::var("_Z_CMD").unwrap_or_else(|_err| "z".to_string());
     if line.starts_with(&cmd) {
-        line = &line[cmd.len()..].trim_start();
+        line = line[cmd.len()..].trim_start();
     }
 
     let escaped = regex::escape(line);
 
-    for row in search(&data_file, &escaped, Scorer::Frecent(unix_time()))
+    for row in search(data_file, &escaped, Scorer::Frecent(unix_time()))
         .with_context(|| anyhow!("searching for completion data"))?
         .into_iter()
         .rev()
