@@ -1,6 +1,5 @@
 ## zrs
 
-[![Build status](https://api.travis-ci.org/FauxFaux/zrs.png)](https://travis-ci.org/FauxFaux/zrs)
 [![](https://img.shields.io/crates/v/zrs.svg)](https://crates.io/crates/zrs)
 
 `zrs` is a directory switching helper, based on
