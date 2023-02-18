@@ -259,11 +259,11 @@ fn run() -> Result<Return> {
         .get_matches();
 
     {
-        let blocking_add = matches.get_one::<&OsStr>("add-blocking");
-        let normal_add = matches.get_one("add");
-        if let Some(path) = normal_add.or(blocking_add) {
-            // this must not be called while there are threaded operations running
-            return add_entry(&data_file, blocking_add.is_none(), path);
+        if let Some(mut blocking) = matches.get_raw("add-blocking") {
+            return add_entry(&data_file, false, blocking.next().expect("required arg"));
+        }
+        if let Some(mut normal) = matches.get_raw("add") {
+            return add_entry(&data_file, true, normal.next().expect("required argument"));
         }
     }
 
