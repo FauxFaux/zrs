@@ -14,8 +14,8 @@ use anyhow::anyhow;
 use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
-use clap::{Arg, ArgAction};
 use clap::ArgGroup;
+use clap::{Arg, ArgAction};
 use nix::unistd;
 
 use crate::store::Row;
@@ -300,7 +300,7 @@ fn run() -> Result<Return> {
         expr.push('/');
     }
 
-    if let Some(values) = matches.get_many::<&str>("expressions") {
+    if let Some(values) = matches.get_many::<String>("expressions") {
         for val in values {
             if !expr.is_empty() {
                 expr.push_str(".*");
