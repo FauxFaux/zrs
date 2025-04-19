@@ -15,7 +15,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["cargo"] }
-dirs = "4"
+dirs = "6"
 regex = "1"
 tempfile = "3"
 twoway = "0.2"
