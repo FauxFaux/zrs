@@ -19,7 +19,7 @@ dirs = "4"
 regex = "1"
 tempfile = "3"
 twoway = "0.2"
-nix = "0.26"
+nix = { version = "0.29", features = ["fs", "process", "user"] }
 
 [profile.release]
 lto = true

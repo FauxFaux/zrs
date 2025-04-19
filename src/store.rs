@@ -4,7 +4,7 @@ use std::io::BufRead;
 use std::io::Read;
 use std::io::Write;
 use std::mem;
-use std::os::unix::io::AsRawFd;
+use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
 
@@ -64,11 +64,12 @@ where
     F: FnOnce(&mut Vec<Row>) -> Result<R>,
 {
     let lock = open_data_file(&data_file)?;
-    fcntl::flock(lock.as_raw_fd(), fcntl::FlockArg::LockExclusive)
+    let lock = fcntl::Flock::lock(lock, fcntl::FlockArg::LockExclusive)
+        .map_err(|(_, e)| e)
         .with_context(|| anyhow!("locking"))?;
 
     // Mmm, if we pass this by value, it will be dropped immediately, which we don't want
-    let mut table = parse(&lock).with_context(|| anyhow!("parsing"))?;
+    let mut table = parse(lock.deref()).with_context(|| anyhow!("parsing"))?;
 
     let result = apply(&mut table).with_context(|| anyhow!("processing"))?;
 
