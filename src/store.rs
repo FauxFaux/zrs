@@ -8,10 +8,10 @@ use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
 
-use anyhow::anyhow;
-use anyhow::ensure;
 use anyhow::Context;
 use anyhow::Result;
+use anyhow::anyhow;
+use anyhow::ensure;
 use nix::fcntl;
 use tempfile::NamedTempFile;
 
